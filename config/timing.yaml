@@ -1,0 +1,5 @@
+# Phase A timing config (placeholder)
+dataset: random_uniform
+key_lengths: [8, 16, 32, 64]
+n_keys: 5000000
+threshold_delta: 0.01   # overhead decision

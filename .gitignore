@@ -1,0 +1,18 @@
+# Visual Studio cache
+.vs/
+
+# Build artifacts
+build/
+CMakeCache.txt
+CMakeFiles/
+*.user
+*.vcxproj*
+*.sln
+
+# Results
+results/
+.results/
+
+# Python
+__pycache__/
+*.pyc

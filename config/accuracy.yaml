@@ -1,0 +1,5 @@
+# Phase B accuracy config (placeholder)
+repetitions: 20
+datasets: [A1, A2, R1, R2]
+sketches: [CountMin, BottomK, OPH]
+hashes: [MultiplyShift, Rapidhash]
