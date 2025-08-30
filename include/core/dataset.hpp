@@ -1,12 +1,12 @@
 #pragma once
-#include <span>
 #include <cstddef>
-#include <vector>
 #include <cstdint>
 
 struct Stream {
   virtual ~Stream() = default;
-  // Writes a view over the next key into out_key; returns false when exhausted.
-  virtual bool next(std::span<const std::byte>& out_key) = 0;
+  // Provides a pointer to the key bytes and its length in bytes.
+  // Returns false when the stream is exhausted.
+  virtual bool next(const void*& out_ptr, std::size_t& out_len) = 0;
+  // Rewind to the beginning of the stream.
   virtual void reset() = 0;
 };

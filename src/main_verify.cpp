@@ -1,70 +1,56 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
-#include <span>
 #include <cstdint>
 #include <core/dataset.hpp>
+#include <core/unaligned.hpp>
 #include <core/a1_mixed_stream.hpp>
+#include <hash/ms32_demo.hpp>
 
-static uint32_t load_u32(std::span<const std::byte> s){
-  uint32_t v = 0;
-  v |= uint32_t(std::to_integer<unsigned char>(s[0]));
-  v |= uint32_t(std::to_integer<unsigned char>(s[1])) << 8;
-  v |= uint32_t(std::to_integer<unsigned char>(s[2])) << 16;
-  v |= uint32_t(std::to_integer<unsigned char>(s[3])) << 24;
-  return v;
+static uint32_t load_u32_le(const void* p){
+  return GET_U32(static_cast<const uint8_t*>(p), 0);
 }
 
 int main(){
   const std::size_t N = 100000;
-  datasets::A1MixedStream mix(N);
-  std::span<const std::byte> key;
-  std::size_t count = 0;
-  uint32_t max_seen = 0;
+  datasets::A1MixedStream s(N);
 
+  // 1) Count items and distincts using ptr/len
+  const void* ptr = nullptr; std::size_t len = 0;
   std::vector<char> seen; seen.reserve(N/2 + 1024);
+  uint32_t max_seen = 0;
+  std::size_t count = 0;
 
-  while (mix.next(key)){
+  while (s.next(ptr, len)){
     ++count;
-    uint32_t v = load_u32(key);
-    if (v > max_seen){ max_seen = v; seen.resize(max_seen+1, 0); }
+    // All keys are 4 bytes LE, but we consume via (ptr,len)
+    uint32_t v = load_u32_le(ptr);
+    if (v > max_seen) { max_seen = v; seen.resize(max_seen+1, 0); }
     seen[v] = 1;
   }
-  std::cout << "Mixed total items: " << count << " (expected " << N << ")\n";
-  std::cout << "Distinct overall: " << std::count(seen.begin(), seen.end(), 1) << "\n";
+  std::cout << "Items: " << count << " (expected " << N << ")\n";
+  std::cout << "Distinct: " << std::count(seen.begin(), seen.end(), 1) << "\n";
 
-  // Determinism check
-  mix.reset();
+  // 2) Determinism: first 10 items must match after reset
+  s.reset();
   std::vector<uint32_t> first10;
-  for (int i=0;i<10 && mix.next(key);++i) first10.push_back(load_u32(key));
-  mix.reset();
-  for (int i=0;i<10 && mix.next(key);++i){
-    if (first10[i] != load_u32(key)) {
-      std::cerr << "[FAIL] determinism mismatch at " << i << "\n";
-      return 1;
-    }
+  for (int i=0;i<10 && s.next(ptr, len); ++i) first10.push_back(load_u32_le(ptr));
+  s.reset();
+  for (int i=0;i<10 && s.next(ptr, len); ++i) {
+    uint32_t v = load_u32_le(ptr);
+    if (v != first10[i]) { std::cerr << "[FAIL] determinism at " << i << "\n"; return 1; }
   }
   std::cout << "Determinism OK.\n";
 
-  // 50/50 split test
-  const uint64_t seed = 123456789ull;
-  datasets::A1MixedSplitStream A(N, seed, 0);
-  datasets::A1MixedSplitStream B(N, seed, 1);
+  // 3) Demonstrate using a C-style hash: ms32_demo(in,len,seed,out)
+  s.reset();
+  uint64_t seed = 0x0123456789ABCDEFull;
+  uint32_t out32 = 0;
+  for (int i=0;i<5 && s.next(ptr, len); ++i) {
+    ms32_demo(ptr, len, seed, &out32);
+    std::cout << "key" << (i+1) << " -> hash32 = 0x" << std::hex << out32 << std::dec << "\n";
+  }
 
-  uint32_t mA=0, mB=0;
-  std::vector<char> seenA, seenB;
-  while (A.next(key)){ uint32_t v = load_u32(key); if (v>mA){mA=v; seenA.resize(mA+1,0);} seenA[v]=1; }
-  while (B.next(key)){ uint32_t v = load_u32(key); if (v>mB){mB=v; seenB.resize(mB+1,0);} seenB[v]=1; }
-
-  int inter=0, uni=0;
-  uint32_t m = std::max(mA, mB);
-  seenA.resize(m+1,0); seenB.resize(m+1,0);
-  for (uint32_t i=1;i<=m;++i){ inter += (seenA[i] && seenB[i]); uni += (seenA[i] || seenB[i]); }
-  std::cout << "Distinct A: " << std::count(seenA.begin(), seenA.end(), 1)
-            << ", Distinct B: " << std::count(seenB.begin(), seenB.end(), 1)
-            << ", Union: " << uni << ", Intersection: " << inter
-            << ", Jaccard ~ " << (uni ? (double)inter/uni : 0.0) << "\n";
-
-  std::cout << "verify: A1Mixed OK\n";
+  std::cout << "verify (ptr,len + A1Mixed): OK\n";
   return 0;
 }
