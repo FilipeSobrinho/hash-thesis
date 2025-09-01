@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstring>
 
+// Alignment-safe loads (ignore byte swapping; treat input as little-endian bytes).
 static inline uint16_t GET_U16(const uint8_t* b, uint32_t i) {
   uint16_t n;
   std::memcpy(&n, b + i, 2);
