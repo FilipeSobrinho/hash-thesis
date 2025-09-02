@@ -1,3 +1,9 @@
+/*
+ * This file is based on Frank J. T. Wojcik's SMHasher3.
+ * Original source: https://gitlab.com/fwojcik/smhasher3/-/blob/main/platform/Platform.h.in
+ *
+ */
+
 #pragma once
 #include <cstdint>
 #include <cstring>
