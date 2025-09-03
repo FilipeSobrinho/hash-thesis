@@ -6,8 +6,8 @@
 
 namespace hashfn {
 
-    struct MS32 {
-        MS32() = default;
+    struct MS {
+        MS() = default;
 
         // Set 64-bit parameters. 'a' is forced odd to match common practice.
         void set_params(std::uint64_t a, std::uint64_t b) {

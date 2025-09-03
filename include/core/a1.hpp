@@ -1,9 +1,9 @@
 #pragma once
-// A1Mixed materialized datasets (ptr,len API, fully pre-generated):
-// - A1MixedMaterialized: emits exactly N items where the first half are unique
+// A1  datasets (ptr,len API, fully pre-generated):
+// - A1: emits exactly N items where the first half are unique
 //   integers 1..floor(N/2) (each encoded as 4B little-endian), and the second half
 //   follows the A1 skew rule: repeats w(i)=ceil(i/100) for i=1,2,...
-// - A1MixedSplitMaterialized: builds two fully materialized 50/50 random splits
+// - A1Split: builds two fully materialized 50/50 random splits
 //   (group 0 and group 1) using splitmix64(seed + position) & 1 on the global index.
 //
 // Streaming is zero-overhead: each Stream is just an index over a contiguous byte buffer.
@@ -59,8 +59,8 @@ static inline uint64_t splitmix64(uint64_t x){
   return x;
 }
 
-struct A1MixedMaterialized {
-  explicit A1MixedMaterialized(std::size_t N) : N_(N) {
+struct A1 {
+  explicit A1(std::size_t N) : N_(N) {
     buf_.resize(N_ * 4); // 4 bytes per key
     // Fill first half with unique values 1..floor(N/2)
     const std::size_t half = N_ / 2;
@@ -87,9 +87,9 @@ private:
   std::vector<uint8_t> buf_;
 };
 
-struct A1MixedSplitMaterialized {
+struct A1Split {
   // Build both groups fully in memory.
-  A1MixedSplitMaterialized(std::size_t N, uint64_t seed) {
+  A1Split(std::size_t N, uint64_t seed) {
     const std::size_t half = N / 2;
     bufA_.reserve(((N + 1) / 2) * 4);
     bufB_.reserve(((N + 1) / 2) * 4);
