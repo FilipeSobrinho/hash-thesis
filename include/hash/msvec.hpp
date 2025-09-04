@@ -1,3 +1,9 @@
+/*
+ * This file is based on Frank J. T. Wojcik's SMHasher3 which itself is based on Thorup's "High Speed Hashing for Integers and Strings" 2018: https://arxiv.org/pdf/1504.06804.pdf
+ * Original code: https://gitlab.com/fwojcik/smhasher3/-/blob/main/hashes/multiply_shift.cpp#L113
+ *
+ */
+
 #pragma once
 // Multiply-Vector-Shift: 8 coefficients (uint64_t), 32-bit word lanes, 32 output.
 // Single config entry point: set_params(...)
