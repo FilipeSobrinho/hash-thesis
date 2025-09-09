@@ -111,7 +111,7 @@ static void summarize(const char* label, const std::vector<RunStats>& rs, size_t
 
 int main(int argc, char** argv) {
     // Defaults
-    size_t N = 10'000'000;       // total items for A1
+    size_t N = 1000'000'000;       // total items for A1
     int reps = 5;
     bool do_split = true;
     uint64_t A = 0x9E3779B97F4A7C15ull; // odd
