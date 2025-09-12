@@ -1,20 +1,26 @@
 /*
- * This file is based on Frank J. T. Wojcik's SMHasher3 which itself is based on Thorup's "High Speed Hashing for Integers and Strings" 2018: https://arxiv.org/pdf/1504.06804.pdf
+ * This file is based on Frank J. T. Wojcik's SMHasher3 which itself is based on Thorup's
+ * "High Speed Hashing for Integers and Strings" 2018: https://arxiv.org/pdf/1504.06804.pdf
  * Original code: https://gitlab.com/fwojcik/smhasher3/-/blob/main/hashes/multiply_shift.cpp#L113
- *
  */
 
 #pragma once
- // Multiply-Vector-Shift: 8 coefficients (uint64_t), 32-bit word lanes, 32 output.
+ // Multiply-Vector-Shift: K coefficients (uint64_t), 32-bit word lanes, 32-bit output.
  // Single config entry point: set_params(...)
  //
- // h = sum_i ( uint64_t(w_i) * coeffs[i % 8] ) + (tail * coeffs[len_words % 8])
+ // h = sum_i ( uint64_t(w_i) * coeffs[i % K] ) + (tail * coeffs[len_words % K])
  // return uint32_t(h >> 32)
- //
+
 #include <cstdint>
 #include <cstddef>
 #include <array>
 #include <core/unaligned.hpp>
+
+// ---- configure number of coefficients --------------------------------------
+#ifndef MSVEC_NUM_COEFFS
+#define MSVEC_NUM_COEFFS 8  // default; define before including to change
+#endif
+
 
 // ---- force-inline macro (local, guarded) -----------------------------------
 #ifndef HASH_FORCEINLINE
@@ -33,8 +39,9 @@ namespace hashfn {
     struct MSVec {
         MSVec() { coeffs_.fill(1ull); }
 
-        // Set the 8 coefficients. If force_odd=true (default), force each coeff to be odd.
-        HASH_FORCEINLINE void set_params(const std::array<std::uint64_t, 8>& coeffs, bool force_odd = true) {
+        // Set the K coefficients. If force_odd=true (default), force each coeff to be odd.
+        HASH_FORCEINLINE void set_params(const std::array<std::uint64_t, MSVEC_NUM_COEFFS>& coeffs,
+            bool force_odd = true) {
             coeffs_ = coeffs;
             if (force_odd) for (auto& a : coeffs_) a |= 1ull;
         }
@@ -48,7 +55,7 @@ namespace hashfn {
             // Full 4-byte words
             for (std::size_t i = 0; i < len; ++i, buf += 4) {
                 std::uint32_t w = GET_U32(buf, 0);
-                t = static_cast<std::uint64_t>(w) * coeffs_[i & 7u];
+                t = static_cast<std::uint64_t>(w) * coeffs_[i % MSVEC_NUM_COEFFS];
                 h += t;
             }
 
@@ -58,17 +65,17 @@ namespace hashfn {
                 std::uint64_t last = 0;
                 if (remaining & 2) { last = (last << 16) | GET_U16(buf, 0); buf += 2; }
                 if (remaining & 1) { last = (last << 8) | (*buf); }
-                t = last * coeffs_[len & 7u];
+                t = last * coeffs_[len % MSVEC_NUM_COEFFS];
                 h += t;
             }
 
             return static_cast<std::uint32_t>(h >> 32);
         }
 
-        HASH_FORCEINLINE const std::array<std::uint64_t, 8>& coeffs() const { return coeffs_; }
+        HASH_FORCEINLINE const std::array<std::uint64_t, MSVEC_NUM_COEFFS>& coeffs() const { return coeffs_; }
 
     private:
-        std::array<std::uint64_t, 8> coeffs_;
+        std::array<std::uint64_t, MSVEC_NUM_COEFFS> coeffs_;
     };
 
 } // namespace hashfn
