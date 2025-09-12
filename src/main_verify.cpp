@@ -1,89 +1,67 @@
-// src/accuracy_bottomk_ms_a1.cpp
-// 5e4 repetitions, k=24500, true D=5e5; using MS hasher on distinct keys 1..D.
-// Writes one relative error per line to a txt file for plotting.
-
-#include <algorithm>
-#include <cstdint>
-#include <fstream>
-#include <iomanip>
 #include <iostream>
-#include <string>
 #include <vector>
+#include <array>
+#include <cstdint>
+#include <cstring>
+#include <iomanip>
+#include <limits>
+#include "hash/msvec.hpp"
 
-#include "hash/ms.hpp"          // MS: set_params(uint64_t a, uint64_t b); uint32_t hash(uint32_t x) const;
-#include "sketch/bottomk.hpp"   // sketch::BottomK
-#include "core/randomgen.hpp"   // rng::get_u64() for deterministic reseeding
-
-static inline std::uint64_t parse_u64(const std::string& s) {
-    if (s.rfind("0x", 0) == 0 || s.rfind("0X", 0) == 0) return std::stoull(s, nullptr, 16);
-    return std::stoull(s, nullptr, 10);
+static uint32_t ref_msvec8_hi(const void* in, size_t len_bytes, const std::array<uint64_t, 8>& C) {
+    const uint8_t* buf = static_cast<const uint8_t*>(in);
+    const size_t   len = len_bytes / 4;
+    uint64_t h = 0, t = 0;
+    for (size_t i = 0; i < len; ++i, buf += 4) {
+        uint32_t w; std::memcpy(&w, buf, 4);
+        t = uint64_t(w) * C[i & 7u];
+        h += t;
+    }
+    const int rem = int(len_bytes & 3u);
+    if (rem) {
+        uint64_t last = 0;
+        if (rem & 2) { uint16_t v; std::memcpy(&v, buf, 2); last = (last << 16) | v; buf += 2; }
+        if (rem & 1) { last = (last << 8) | (*buf); }
+        t = last * C[len & 7u];
+        h += t;
+    }
+    return uint32_t(h >> 32);
 }
 
-int main(int argc, char** argv) {
-    // Defaults per your spec
-    const std::size_t D_default = 500000;    // cardinality
-    const std::size_t K_default = 24500;     // bottom-k
-    const std::size_t R_default = 50000;     // repetitions
-    std::size_t D = D_default, K = K_default, R = R_default;
-    std::string outfile = "bottomk_ms_a1_relerr.txt";
-    std::uint64_t a_seed0 = 0, b_seed0 = 0; // optional fixed seeds (0 -> use rng)
+int main() {
+    using hashfn::MSVec;
 
-    // CLI
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-        auto next = [&]() { if (i + 1 < argc) return std::string(argv[++i]); throw std::runtime_error("Missing value for " + arg); };
-        if (arg == "--D") D = std::stoull(next());
-        else if (arg == "--k") K = std::stoull(next());
-        else if (arg == "--R") R = std::stoull(next());
-        else if (arg == "--out") outfile = next();
-        else if (arg == "--a0") a_seed0 = parse_u64(next());
-        else if (arg == "--b0") b_seed0 = parse_u64(next());
-        else if (arg == "--help" || arg == "-h") {
-            std::cout << "Usage: accuracy_bottomk_ms_a1 [--D 500000] [--k 24500] [--R 50000] [--out file.txt] [--a0 <u64>] [--b0 <u64>]\n";
-            return 0;
-        }
-    }
+    // Coefficients
+    std::array<uint64_t, 8> C = {
+      0x9E3779B97F4A7C15ull, 0xD6E8FEB86659FD93ull,
+      0xC2B2AE3D27D4EB4Full, 0x165667B19E3779F9ull,
+      0x85EBCA77C2B2AE63ull, 0x27D4EB2F165667C5ull,
+      0x94D049BB133111EBull, 0xBF58476D1CE4E5B9ull
+    };
 
-    std::cout << "Bottom-k accuracy (MS on A1 distinct keys): D=" << D
-        << "  k=" << K << "  R=" << R << "\n"
-        << "Writing relative errors to: " << outfile << "\n";
+    MSVec H;
+    H.set_params(C, /*force_odd=*/true);
 
-    std::ofstream out(outfile, std::ios::binary);
-    if (!out) {
-        std::cerr << "Cannot open output file: " << outfile << "\n";
-        return 1;
-    }
-    out.setf(std::ios::fixed); out << std::setprecision(8);
+    // Cases
+    std::vector<uint8_t> b0;
+    std::vector<uint8_t> b4 = { 1,2,3,4 };
+    std::vector<uint8_t> b5 = { 1,2,3,4,5 };
+    std::vector<uint8_t> b7 = { 1,2,3,4,5,6,7 };
+    std::vector<uint8_t> bN(1000);
+    for (size_t i = 0; i < bN.size(); ++i) bN[i] = uint8_t(i & 0xFF);
 
-    // Precompute distinct key universe (1..D), as A1's duplicates don't affect distinct counting accuracy
-    std::vector<std::uint32_t> keys;
-    keys.reserve(D);
-    for (std::uint32_t i = 1; i <= D; ++i) keys.push_back(i);
+    auto check = [&](const char* name, const std::vector<uint8_t>& buf) {
+        uint32_t hv = H.hash(buf.data(), buf.size());
+        uint32_t rf = ref_msvec8_hi(buf.data(), buf.size(), H.coeffs());
+        std::cout << std::left << std::setw(8) << name << ": " << hv << " (ref " << rf << ")\n";
+        if (hv != rf) { std::cerr << "[FAIL] " << name << "\n"; std::exit(1); }
+        };
 
-    // Repetitions
-    for (std::size_t r = 0; r < R; ++r) {
-        // New hash parameters each rep (deterministic across clones via rng loader)
-        std::uint64_t a = (a_seed0 ? a_seed0 + r : rng::get_u64());
-        std::uint64_t b = (b_seed0 ? b_seed0 + r : rng::get_u64());
+    check("Empty", b0);
+    check("4B", b4);
+    check("5B", b5);
+    check("7B", b7);
+    check("1000B", bN);
 
-        hashfn::MS h; h.set_params(a, b);
-        sketch::BottomK bk(K);
-
-        // Feed distinct keys once each
-        for (auto x : keys) {
-            std::uint32_t hv = h.hash(x);
-            bk.push(hv);
-        }
-
-        const double est = bk.estimate();
-        const double relerr = (est - double(D)) / double(D);
-        out << relerr << "\n";
-
-        if ((r + 1) % 1000 == 0) {
-            std::cout << "  rep " << (r + 1) << "/" << R << " done\r" << std::flush;
-        }
-    }
-
-    std::cout << "\nDone. Wrote " << R << " relative errors to " << outfile << "\n";
+    std::cout << "\nverify_msvec8_ab64_hi (set_params): OK\n";
     return 0;
 }
