@@ -40,8 +40,7 @@ namespace hashfn {
         public:
             // Rows: 3 for the lowest bytes + D for derived bytes
             static constexpr std::size_t ROWS = 3 + D;
-            using Row = std::array<std::uint32_t, 256>;
-            using Table = std::array<Row, ROWS>;
+            using Table = std::array<std::array<std::uint32_t, ROWS>, 256>;
 
             // Single setter: fill tables with Poly32(seed, degree=100)
             HASH_FORCEINLINE void set_params(std::uint64_t seed) {
@@ -61,17 +60,17 @@ namespace hashfn {
                 for (int i = 0; i < 3; ++i) {
                     std::uint8_t c = static_cast<std::uint8_t>(x);
                     x >>= 8;
-                    h ^= T_[static_cast<std::size_t>(i)][c];
+                    h ^= T_[i][c];
                 }
 
                 // Fast-mix the most-significant byte (now x holds original MSB)
-                h ^= static_cast<std::uint8_t>(x);
+                h ^= x;
 
                 // Derive D extra bytes from h and mix via rows 3..(2 + D)
                 for (int i = 0; i < D; ++i) {
                     std::uint8_t c = static_cast<std::uint8_t>(h);
                     h >>= 8;
-                    h ^= T_[static_cast<std::size_t>(3 + i)][c];
+                    h ^= T_[3 + i][c];
                 }
 
                 return h;
