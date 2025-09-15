@@ -1,6 +1,6 @@
 #pragma once
 // SimpleTab32: 4-way simple tabulation on a 32-bit key.
-// Table layout: T[256][4] of 32-bit words; hash is XOR of four lookups.
+// Table: T[256][4] of 32-bit words; hash is XOR of four lookups.
 
 // ---- force-inline macro (local, guarded) -----------------------------------
 #ifndef HASH_FORCEINLINE
@@ -18,18 +18,20 @@
 #include <array>
 #include <cstddef>
 
+#include "hash/poly32.hpp"     // for internal table population (degree=100)
+#include "hash/msvec.hpp"      // for TabOnMSVec (prehash any-length -> 32-bit)
+
+// MSVEC_NUM_COEFFS is read from msvec.hpp; default is 8 unless you override.
+
 namespace hashfn {
 
     class SimpleTab32 {
     public:
         using Table = std::array<std::array<std::uint32_t, 4>, 256>;
 
-        HASH_FORCEINLINE void set_params(const Table& T) {
-            T_ = T;
-        }
-
-        template <class Poly32Like>
-        HASH_FORCEINLINE void set_params_from_poly(Poly32Like& poly) {
+        // Single setter: populate table from Poly32 using the given seed (degree=100)
+        HASH_FORCEINLINE void set_params(std::uint64_t seed) {
+            Poly32 poly; poly.set_params(seed, /*degree=*/100);
             for (std::size_t i = 0; i < 4; ++i) {
                 for (std::size_t j = 0; j < 256; ++j) {
                     T_[j][i] = poly.next32();
@@ -37,6 +39,7 @@ namespace hashfn {
             }
         }
 
+        // 32-bit key -> 32-bit hash
         HASH_FORCEINLINE std::uint32_t hash(std::uint32_t x) const {
             std::uint32_t h = 0;
             for (int i = 0; i < 4; ++i, x >>= 8) {
@@ -47,6 +50,37 @@ namespace hashfn {
 
     private:
         Table T_{};
+    };
+
+    // ---------------------------------------------------------------------------
+    // TabOnMSVec: arbitrary-length input hashed by MSVec, then SimpleTab32.
+    // hash(buf,len) = SimpleTab32.hash( MSVec.hash(buf,len) )
+    class TabOnMSVec {
+    public:
+        using Coeffs = std::array<std::uint64_t, MSVEC_NUM_COEFFS>;
+
+        // Single setter:
+        //  - seed   -> populates SimpleTab32 via Poly32(degree=100)
+        //  - coeffs -> MSVec coefficients (optionally forced odd)
+        HASH_FORCEINLINE void set_params(std::uint64_t seed,
+            const Coeffs& coeffs,
+            bool force_odd = true)
+        {
+            // Set tabulation table
+            stab_.set_params(seed);
+            // Set prehash coefficients
+            msvec_.set_params(coeffs, force_odd);
+        }
+
+        // Any-length input -> 32-bit output
+        HASH_FORCEINLINE std::uint32_t hash(const void* key, std::size_t len_bytes) const {
+            const std::uint32_t mid = msvec_.hash(key, len_bytes);
+            return stab_.hash(mid);
+        }
+
+    private:
+        MSVec        msvec_;
+        SimpleTab32  stab_;
     };
 
 } // namespace hashfn

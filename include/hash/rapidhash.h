@@ -33,6 +33,8 @@
  *   - rapidhash source repository: https://github.com/Nicoshev/rapidhash
  */
 
+//Wrapers, 32 bit variant and macros added
+
 /*
  *  Includes.
  */
@@ -338,6 +340,26 @@ RAPIDHASH_INLINE uint64_t rapidhash(const void *key, size_t len) RAPIDHASH_NOEXC
 }
 
 
+
+// ------------- 32-bit (top-half) variants -----------------------------------
+RAPIDHASH_INLINE uint32_t rapidhash32_internal(const void* key, size_t len,
+    uint64_t seed, const uint64_t* secret) RAPIDHASH_NOEXCEPT {
+    const uint64_t h = rapidhash_internal(key, len, seed, secret);
+    return static_cast<uint32_t>(h >> 32);  // top 32 bits
+}
+
+RAPIDHASH_INLINE uint32_t rapidhash32_withSeed(const void* key, size_t len,
+    uint64_t seed) RAPIDHASH_NOEXCEPT {
+    return rapidhash32_internal(key, len, seed, rapid_secret);
+}
+
+RAPIDHASH_INLINE uint32_t rapidhash32(const void* key, size_t len) RAPIDHASH_NOEXCEPT {
+    return rapidhash32_withSeed(key, len, RAPID_SEED);
+}
+
+
+
+
 // ---- Stateful wrapper: set once, hash many (no templates, no operator) ----
 #ifdef __cplusplus
 #include <cstdint>
@@ -357,6 +379,21 @@ namespace rapid {
 
         RAPIDHASH_INLINE std::uint64_t hash(const void* key, std::size_t len) const noexcept {
             return rapidhash_internal(key, len, seed_, secret_);
+        }
+    };
+
+    struct RapidHash32 {
+        std::uint64_t seed_ = RAPID_SEED;
+        std::uint64_t secret_[3] = { rapid_secret[0], rapid_secret[1], rapid_secret[2] };
+
+        RAPIDHASH_INLINE void set_params(std::uint64_t seed,
+            std::uint64_t s0, std::uint64_t s1, std::uint64_t s2) RAPIDHASH_NOEXCEPT {
+            seed_ = seed;
+            secret_[0] = s0; secret_[1] = s1; secret_[2] = s2;
+        }
+
+        RAPIDHASH_INLINE std::uint32_t hash(const void* key, std::size_t len) const RAPIDHASH_NOEXCEPT {
+            return rapidhash32_internal(key, len, seed_, secret_);
         }
     };
 

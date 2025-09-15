@@ -1,67 +1,59 @@
-#include <iostream>
-#include <vector>
-#include <array>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
-#include <iomanip>
-#include <limits>
-#include "hash/msvec.hpp"
+#include <inttypes.h>
+#include <vector>
+#include "hash/rapidhash.h"
 
-static uint32_t ref_msvec8_hi(const void* in, size_t len_bytes, const std::array<uint64_t, 8>& C) {
-    const uint8_t* buf = static_cast<const uint8_t*>(in);
-    const size_t   len = len_bytes / 4;
-    uint64_t h = 0, t = 0;
-    for (size_t i = 0; i < len; ++i, buf += 4) {
-        uint32_t w; std::memcpy(&w, buf, 4);
-        t = uint64_t(w) * C[i & 7u];
-        h += t;
+static bool check_top32_matches_shift() {
+    const char* msgs[] = { "", "a", "abc", "message digest",
+                          "abcdefghijklmnopqrstuvwxyz",
+                          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+                          "123456789012345678901234567890123456789012345678901234567890"
+                          "12345678901234567890" };
+
+    bool ok = true;
+    for (auto s : msgs) {
+        const size_t n = std::strlen(s);
+        const uint64_t h64 = rapidhash(s, n);
+        const uint32_t want = static_cast<uint32_t>(h64 >> 32);
+        const uint32_t got = rapidhash32(s, n);
+        if (got != want) {
+            std::printf("FAIL: top32 mismatch for \"%s\": 0x%08" PRIx32 " vs 0x%08" PRIx32 "\n",
+                s, got, want);
+            ok = false;
+        }
     }
-    const int rem = int(len_bytes & 3u);
-    if (rem) {
-        uint64_t last = 0;
-        if (rem & 2) { uint16_t v; std::memcpy(&v, buf, 2); last = (last << 16) | v; buf += 2; }
-        if (rem & 1) { last = (last << 8) | (*buf); }
-        t = last * C[len & 7u];
-        h += t;
+    if (ok) std::puts("OK: rapidhash32 == top 32 bits of rapidhash.");
+    return ok;
+}
+
+static bool check_wrapper32_vs_internal() {
+    rapid::RapidHash32 H;
+    H.set_params(/*seed*/ 0x0123456789ABCDEFull, rapid_secret[0], rapid_secret[1], rapid_secret[2]);
+
+    const char* msgs[] = { "", "a", "abc", "abcdefgh", "abcdefghABCDEFGH", "0123456789abcdefghij" };
+    bool ok = true;
+    for (auto s : msgs) {
+        const size_t n = std::strlen(s);
+        const uint32_t a = H.hash(s, n);
+        const uint32_t b = rapidhash32_withSeed(s, n, 0x0123456789ABCDEFull);
+        if (a != b) {
+            std::printf("FAIL: wrapper32 vs withSeed mismatch for \"%s\": a=0x%08" PRIx32 " b=0x%08" PRIx32 "\n",
+                s, a, b);
+            ok = false;
+        }
     }
-    return uint32_t(h >> 32);
+    if (ok) std::puts("OK: RapidHash32 wrapper matches rapidhash32_withSeed.");
+    return ok;
 }
 
 int main() {
-    using hashfn::MSVec;
-
-    // Coefficients
-    std::array<uint64_t, 8> C = {
-      0x9E3779B97F4A7C15ull, 0xD6E8FEB86659FD93ull,
-      0xC2B2AE3D27D4EB4Full, 0x165667B19E3779F9ull,
-      0x85EBCA77C2B2AE63ull, 0x27D4EB2F165667C5ull,
-      0x94D049BB133111EBull, 0xBF58476D1CE4E5B9ull
-    };
-
-    MSVec H;
-    H.set_params(C, /*force_odd=*/true);
-
-    // Cases
-    std::vector<uint8_t> b0;
-    std::vector<uint8_t> b4 = { 1,2,3,4 };
-    std::vector<uint8_t> b5 = { 1,2,3,4,5 };
-    std::vector<uint8_t> b7 = { 1,2,3,4,5,6,7 };
-    std::vector<uint8_t> bN(1000);
-    for (size_t i = 0; i < bN.size(); ++i) bN[i] = uint8_t(i & 0xFF);
-
-    auto check = [&](const char* name, const std::vector<uint8_t>& buf) {
-        uint32_t hv = H.hash(buf.data(), buf.size());
-        uint32_t rf = ref_msvec8_hi(buf.data(), buf.size(), H.coeffs());
-        std::cout << std::left << std::setw(8) << name << ": " << hv << " (ref " << rf << ")\n";
-        if (hv != rf) { std::cerr << "[FAIL] " << name << "\n"; std::exit(1); }
-        };
-
-    check("Empty", b0);
-    check("4B", b4);
-    check("5B", b5);
-    check("7B", b7);
-    check("1000B", bN);
-
-    std::cout << "\nverify_msvec8_ab64_hi (set_params): OK\n";
-    return 0;
+    bool ok1 = check_top32_matches_shift();
+    bool ok2 = check_wrapper32_vs_internal();
+    if (ok1 && ok2) {
+        std::puts("\nverify_rapidhash32: ALL GOOD");
+        return 0;
+    }
+    return 1;
 }

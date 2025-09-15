@@ -1,4 +1,5 @@
 #pragma once
+// Based on https://github.com/kipoujr/no_repetition/blob/main/src/framework/hashing.h#L454
 // Poly32: degree-d polynomial mod p = 2^61 - 1 (Carter–Wegman style).
 // Deterministically seeded; emits 32-bit values for table population.
 
