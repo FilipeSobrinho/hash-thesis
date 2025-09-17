@@ -18,7 +18,7 @@
 #include <array>
 #include <cstddef>
 
-#include "hash/poly32.hpp"     // for internal table population (degree=100)
+#include "hash/poly.hpp"     // for internal table population (degree=100)
 #include "hash/msvec.hpp"      // for TabOnMSVec (prehash any-length -> 32-bit)
 
 // MSVEC_NUM_COEFFS is read from msvec.hpp; default is 8 unless you override.
@@ -30,8 +30,8 @@ namespace hashfn {
         using Table = std::array<std::array<std::uint32_t, 4>, 256>;
 
         // Single setter: populate table from Poly32 using the given seed (degree=100)
-        HASH_FORCEINLINE void set_params(std::uint64_t seed) {
-            Poly32 poly; poly.set_params(seed, /*degree=*/100);
+        HASH_FORCEINLINE void set_params() {
+            Poly32 poly; poly.set_params();
             for (std::size_t i = 0; i < 4; ++i) {
                 for (std::size_t j = 0; j < 256; ++j) {
                     T_[i][j] = poly.next32();
@@ -62,12 +62,11 @@ namespace hashfn {
         // Single setter:
         //  - seed   -> populates SimpleTab32 via Poly32(degree=100)
         //  - coeffs -> MSVec coefficients (optionally forced odd)
-        HASH_FORCEINLINE void set_params(std::uint64_t seed,
-            const Coeffs& coeffs,
+        HASH_FORCEINLINE void set_params(const Coeffs& coeffs,
             bool force_odd = true)
         {
             // Set tabulation table
-            stab_.set_params(seed);
+            stab_.set_params();
             // Set prehash coefficients
             msvec_.set_params(coeffs, force_odd);
         }

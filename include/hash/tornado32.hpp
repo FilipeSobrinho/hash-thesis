@@ -25,7 +25,7 @@
 #include <array>
 #include <cstddef>
 
-#include "hash/poly32.hpp"   // for table population (degree fixed to 100)
+#include "hash/poly.hpp"   // for table population (degree fixed to 100)
 #include "hash/msvec.hpp"    // for MSVec any-length prehash (uses MSVEC_NUM_COEFFS)
 
 namespace hashfn {
@@ -40,21 +40,21 @@ namespace hashfn {
         public:
             // Rows: 3 for the lowest bytes + D for derived bytes
             static constexpr std::size_t ROWS = 3 + D;
-            using Table = std::array<std::array<std::uint32_t, ROWS>, 256>;
+            using Table = std::array<std::array<std::uint64_t, ROWS>, 256>;
 
-            // Single setter: fill tables with Poly32(seed, degree=100)
-            HASH_FORCEINLINE void set_params(std::uint64_t seed) {
-                Poly32 poly; poly.set_params(seed, /*degree=*/100);
+            // Single setter: fill tables with Poly64(seed, degree=100)
+            HASH_FORCEINLINE void set_params() {
+                Poly64 poly; poly.set_params();
                 for (std::size_t r = 0; r < ROWS; ++r) {
                     for (std::size_t j = 0; j < 256; ++j) {
-                        T_[r][j] = poly.next32();
+                        T_[r][j] = poly.next64();
                     }
                 }
             }
 
             // 32-bit key -> 32-bit hash
             HASH_FORCEINLINE std::uint32_t hash(std::uint32_t x) const {
-                std::uint32_t h = 0;
+                std::uint64_t h = 0;
 
                 // Mix the 3 least-significant bytes via rows 0..2
                 for (int i = 0; i < 3; ++i) {
@@ -73,7 +73,7 @@ namespace hashfn {
                     h ^= T_[3 + i][c];
                 }
 
-                return h;
+                return static_cast<std::uint32_t>(h);
             }
 
         private:
@@ -97,10 +97,9 @@ namespace hashfn {
         // Single setter:
         //  - seed   -> populates Tornado tables via Poly32(degree=100)
         //  - coeffs -> MSVec coefficients (optionally forced odd)
-        HASH_FORCEINLINE void set_params(std::uint64_t seed,
-            const Coeffs& coeffs,
+        HASH_FORCEINLINE void set_params(const Coeffs& coeffs,
             bool force_odd = true) {
-            tornado_.set_params(seed);
+            tornado_.set_params();
             msvec_.set_params(coeffs, force_odd);
         }
 

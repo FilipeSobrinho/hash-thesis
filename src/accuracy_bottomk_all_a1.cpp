@@ -70,13 +70,11 @@ int main(int argc, char** argv){
     }
     // 2) Simple Tabulation (seed -> table via Poly32 degree=100)
     hashfn::SimpleTab32 h_stab; {
-      std::uint64_t seed = rng::get_u64();
-      h_stab.set_params(seed);
+      h_stab.set_params();
     }
     // 3) Tornado D4
     hashfn::TornadoTab32D4 h_tor4; {
-      std::uint64_t seed = rng::get_u64();
-      h_tor4.set_params(seed);
+      h_tor4.set_params();
     }
     // 4) RapidHash top-32
     rapid::RapidHash32 h_rapid; {

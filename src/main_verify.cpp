@@ -26,7 +26,7 @@ static inline std::uint64_t parse_u64(const std::string& s) {
 int main(int argc, char** argv) {
     const std::size_t D_default = 500000;   // cardinality
     const std::size_t K_default = 24500;    // bottom-k size
-    const std::size_t R_default = 2000;    // repetitions
+    const std::size_t R_default = 50000;    // repetitions
     std::size_t D = D_default, K = K_default, R = R_default;
     std::string outfile = "bottomk_all_relerr.csv";
 
@@ -70,13 +70,11 @@ int main(int argc, char** argv) {
         }
         // 2) Simple Tabulation (seed -> table via Poly32 degree=100)
         hashfn::SimpleTab32 h_stab; {
-            std::uint64_t seed = rng::get_u64();
-            h_stab.set_params(seed);
+            h_stab.set_params();
         }
         // 3) Tornado D4
         hashfn::TornadoTab32D4 h_tor4; {
-            std::uint64_t seed = rng::get_u64();
-            h_tor4.set_params(seed);
+            h_tor4.set_params();
         }
         // 4) RapidHash top-32
         rapid::RapidHash32 h_rapid; {

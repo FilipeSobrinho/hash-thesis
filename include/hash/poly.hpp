@@ -24,21 +24,24 @@
 #include <intrin.h>
 #endif
 
+#include "core/randomgen.hpp"
+
 namespace hashfn {
 
     class Poly32 {
     public:
-        HASH_FORCEINLINE void set_params(std::uint64_t seed, std::uint32_t degree = 100) {
+        HASH_FORCEINLINE void set_params(std::uint32_t degree = 100) {
             degree_ = degree ? degree : 1;
             coef_.assign(degree_, 0);
-            std::uint64_t s = seed;
+
             for (std::uint32_t i = 0; i < degree_; ++i) {
-                std::uint64_t c = splitmix64(s) >> 3;  // keep under 2^61
+                // Draw a 64-bit word and fold under p = 2^61 - 1
+                std::uint64_t c = rng::get_u64() >> 3;   // keep under 2^61 scale
                 c = reduce_once(c);
                 if (c >= P) c -= P;
                 coef_[i] = c;
             }
-            if (coef_.back() == 0) coef_.back() = 1;
+            if (coef_.back() == 0) coef_.back() = 1;   // ensure leading coeff != 0
             x_ = 0;
         }
 
@@ -109,5 +112,92 @@ namespace hashfn {
         std::uint32_t degree_{ 100 };
         std::uint64_t x_{ 0 };
     };
+
+
+    // ============================================================================
+    // Poly64: degree-d polynomial mod p = 2^61 - 1 (like Poly32, but 64-bit output)
+    // Deterministic from rng::get_u64() (seedless); optional seed overload retained.
+    // API: set_params(degree=100)  OR  set_params(seed, degree)
+    //      eval(x)->uint64_t; next64()->uint64_t
+    // ============================================================================
+    class Poly64 {
+    public:
+        // NEW: seedless setup using rng::get_u64(); degree defaults to 100
+        HASH_FORCEINLINE void set_params(std::uint32_t degree = 100) {
+            degree_ = degree ? degree : 1;
+            coef_.assign(degree_, 0);
+
+            for (std::uint32_t i = 0; i < degree_; ++i) {
+                std::uint64_t c = rng::get_u64() >> 3;   // keep under 2^61 scale
+                c = reduce_once(c);
+                if (c >= P) c -= P;
+                coef_[i] = c;
+            }
+            if (coef_.back() == 0) coef_.back() = 1;
+            x_ = 0;
+        }
+
+
+        // Evaluate polynomial at x (Horner), mod (2^61 - 1).
+        // Returns a 61-bit value (in a 64-bit type).
+        HASH_FORCEINLINE std::uint64_t eval(std::uint64_t x) const {
+            std::uint64_t h = coef_.back();
+            for (int i = int(degree_) - 2; i >= 0; --i) {
+                h = add_mod(mul_mod(h, x), coef_[std::size_t(i)]);
+            }
+            h = reduce_once(h);
+            if (h >= P) h -= P;
+            return h;
+        }
+
+        // Sequential generator: eval at x_, then ++x_.
+        HASH_FORCEINLINE std::uint64_t next64() {
+            return eval(x_++);
+        }
+
+    private:
+        static constexpr std::uint64_t P = (1ull << 61) - 1;
+
+        // (reuse the same helpers your Poly32 already has)
+        HASH_FORCEINLINE static std::uint64_t add_mod(std::uint64_t a, std::uint64_t b) {
+            std::uint64_t s = a + b;
+            s = (s & P) + (s >> 61);
+            if (s >= P) s -= P;
+            return s;
+        }
+
+        HASH_FORCEINLINE static std::uint64_t mul_mod(std::uint64_t a, std::uint64_t b) {
+#if defined(__SIZEOF_INT128__)
+            __uint128_t z = (__uint128_t)a * (__uint128_t)b;
+            std::uint64_t lo = (std::uint64_t)z & P;
+            std::uint64_t hi = (std::uint64_t)(z >> 61);
+            std::uint64_t s = lo + hi;
+            s = (s & P) + (s >> 61);
+            if (s >= P) s -= P;
+            return s;
+#elif defined(_MSC_VER) && defined(_M_X64)
+            unsigned __int64 hi, lo = _umul128(a, b, &hi);
+            // Reduce ((hi<<64)|lo) mod (2^61-1).
+            std::uint64_t lo61 = lo & P;
+            std::uint64_t hi61 = ((hi << 3) | (lo >> 61)) & P; // (hi * 2^64) mod (2^61-1)
+            std::uint64_t s = lo61 + hi61;
+            s = (s & P) + (s >> 61);
+            if (s >= P) s -= P;
+            return s;
+#else
+#error "128-bit multiplication not supported on this platform/compiler"
+#endif
+        }
+
+        HASH_FORCEINLINE static std::uint64_t reduce_once(std::uint64_t x) {
+            return (x & P) + (x >> 61);
+        }
+
+        std::vector<std::uint64_t> coef_;
+        std::uint32_t degree_{ 100 };
+        std::uint64_t x_{ 0 };
+    };
+
+
 
 } // namespace hashfn
