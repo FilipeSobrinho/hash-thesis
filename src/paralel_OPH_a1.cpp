@@ -32,8 +32,8 @@
 #include "hash/ms.hpp"
 #include "hash/simpletab32.hpp"
 #include "hash/tornado32.hpp"
-#include "rapidhash.h"
-#include "datasets/a1.hpp"   // A1Split (ptr,len keys, 4 bytes LE)
+#include "hash/rapidhash.h"
+#include "core/a1.hpp"   // A1Split (ptr,len keys, 4 bytes LE)
 
 static inline std::uint32_t load_le_u32(const void* p) {
     const std::uint8_t* b = static_cast<const std::uint8_t*>(p);

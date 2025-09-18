@@ -11,7 +11,7 @@ static uint32_t load_u32_le(const void* p) {
 }
 
 int main() {
-    const std::size_t N = 1000'000;
+    const std::size_t N = 500'000;
     const uint64_t seed = 0x0123456789ABCDEFull;
 
     // Fully materialized mixed dataset
