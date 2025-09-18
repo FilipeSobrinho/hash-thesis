@@ -32,7 +32,7 @@
 
 int main(int argc, char** argv) {
     // Defaults (heavy!)
-    std::size_t D = 500000;   // cardinality
+    std::size_t D = 500'000;   // cardinality
     std::size_t K = 24500;    // bottom-k size
     std::size_t R = 50000;    // repetitions
     std::string outfile = "bottomk_all_relerr.csv";

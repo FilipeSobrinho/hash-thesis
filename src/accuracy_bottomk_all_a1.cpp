@@ -16,7 +16,7 @@
 #include "hash/ms.hpp"
 #include "hash/simpletab32.hpp"
 #include "hash/tornado32.hpp"
-#include "rapidhash.h"
+#include "hash/rapidhash.h"
 
 static inline std::uint64_t parse_u64(const std::string& s){
   if (s.rfind("0x", 0) == 0 || s.rfind("0X", 0) == 0) return std::stoull(s, nullptr, 16);

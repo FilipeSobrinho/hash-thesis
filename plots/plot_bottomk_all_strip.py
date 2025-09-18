@@ -8,7 +8,7 @@ import csv
 import sys
 from collections import defaultdict
 
-infile = 'bottomk_all_relerr.csv'
+infile = 'oph_all_relerr.csv'
 if len(sys.argv) > 1:
     infile = sys.argv[1]
 
@@ -38,7 +38,7 @@ for i, fn in enumerate(funcs):
 
 # Reference lines
 plt.axvline(0.0, linewidth=1)
-for v in [0.005, -0.005, 0.01, -0.01]:
+for v in [0.02, -0.02, 0.01, -0.01]:
     plt.axvline(v, linewidth=0.5, linestyle='--')
 
 plt.xlabel('Relative error ((est - D) / D)')
