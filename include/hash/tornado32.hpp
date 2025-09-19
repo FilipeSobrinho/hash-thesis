@@ -47,7 +47,7 @@ namespace hashfn {
                 Poly64 poly; poly.set_params();
                 for (std::size_t r = 0; r < ROWS; ++r) {
                     for (std::size_t j = 0; j < 256; ++j) {
-                        T_[r][j] = poly.next64();
+                        T_[j][r] = poly.next64();
                     }
                 }
             }
@@ -60,7 +60,7 @@ namespace hashfn {
                 for (int i = 0; i < 3; ++i) {
                     std::uint8_t c = static_cast<std::uint8_t>(x);
                     x >>= 8;
-                    h ^= T_[i][c];
+                    h ^= T_[c][i];
                 }
 
                 // Fast-mix the most-significant byte (now x holds original MSB)
@@ -70,7 +70,7 @@ namespace hashfn {
                 for (int i = 0; i < D; ++i) {
                     std::uint8_t c = static_cast<std::uint8_t>(h);
                     h >>= 8;
-                    h ^= T_[3 + i][c];
+                    h ^= T_[c][3 + i];
                 }
 
                 return static_cast<std::uint32_t>(h);

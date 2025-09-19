@@ -34,7 +34,7 @@ namespace hashfn {
             Poly32 poly; poly.set_params();
             for (std::size_t i = 0; i < 4; ++i) {
                 for (std::size_t j = 0; j < 256; ++j) {
-                    T_[i][j] = poly.next32();
+                    T_[j][i] = poly.next32();
                 }
             }
         }
@@ -43,7 +43,7 @@ namespace hashfn {
         HASH_FORCEINLINE std::uint32_t hash(std::uint32_t x) const {
             std::uint32_t h = 0;
             for (int i = 0; i < 4; ++i, x >>= 8) {
-                h ^= T_[i][static_cast<std::uint8_t>(x)];
+                h ^= T_[static_cast<std::uint8_t>(x)][i];
             }
             return h;
         }
