@@ -1,15 +1,16 @@
-// accuracy_bottomk_all_a1.cpp
-// Multi-core Bottom-k accuracy for multiple hash functions.
-// Writes CSV: function,rep,relerr
+// paralel_CMS_a1.cpp
+// Multi-core Count–Min Sketch accuracy for multiple hash families on A1 dataset.
+// CSV: function,rep,relerr   where relerr = mean_{keys with true>0} ( (est-true)/true )
 //
-// Hashers included:
-//   - MultShift (MS): 32-bit key -> 32-bit hash (hi32 of 64-bit accumulate)
-//   - SimpleTab32: seedless table (uses rng::get_u64() under a mutex)
-//   - TornadoTab32D4: seedless tables per row (mutex-protected RNG)
-//   - RapidHash32: 32-bit = top-32 of 64-bit RapidHash; called with (ptr,len)
+// Families:
+//   - MultShift (MS)         : per-row (a,b) seeds
+//   - SimpleTab32            : per-row set_params()   (NO parameters; uses internal RNG)
+//   - TornadoTab32D4         : per-row set_params()   (NO parameters; uses internal RNG)
+//   - RapidHash32 (adapter)  : per-row seed
+// Each repetition: all rows use the SAME family; rows get different params.
 //
-// Parallelization: across repetitions R.
-// Progress: prints every ~1000 reps.
+// Dataset: datasets/a1.hpp (fully materialized A1 stream). Same dataset for all reps.
+// Defaults: ITEMS=500000, WIDTH=32768, DEPTH=3, R=50000 (heavy)
 
 #include <algorithm>
 #include <atomic>
@@ -21,126 +22,194 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
-#include "sketch/bottomk.hpp"
-#include "core/randomgen.hpp"       // rng::get_u64()
+#include "sketch/countmin.hpp"
+#include "core/randomgen.hpp"
 #include "hash/ms.hpp"
-#include "hash/simpletab32.hpp"     // assumes seedless set_params() exists
-#include "hash/tornado32.hpp"       // assumes seedless set_params() exists (per-row)
-#include "hash/rapidhash.h"              // rapid::RapidHash32
+#include "hash/simpletab32.hpp"     // now: set_params() with NO args
+#include "hash/tornado32.hpp"       // now: set_params() with NO args
+#include "hash/rapidhash.h"
+#include "core/a1.hpp"          // adjust include path if your tree differs
+
+// ---- helpers ----
+static inline std::uint32_t load_le_u32(const void* p) {
+    const std::uint8_t* b = static_cast<const std::uint8_t*>(p);
+    return (std::uint32_t)b[0] | (std::uint32_t(b[1]) << 8)
+        | (std::uint32_t(b[2]) << 16) | (std::uint32_t(b[3]) << 24);
+}
+
+// RapidHash row adapter (hash(uint32_t) API for CMS rows)
+struct RapidRow32 {
+    rapid::RapidHash32 h;
+    void set_seed(std::uint64_t seed) {
+        // reuse global secrets; vary only the seed across rows
+        h.set_params(seed, rapid_secret[0], rapid_secret[1], rapid_secret[2]);
+    }
+    std::uint32_t hash(std::uint32_t key) const {
+        return h.hash(&key, sizeof(key));
+    }
+};
 
 int main(int argc, char** argv) {
-    // Defaults (heavy!)
-    std::size_t D = 1000'000;   // cardinality
-    std::size_t K = 24500;    // bottom-k size
-    std::size_t R = 1000;    // repetitions
-    std::string outfile = "bottomk_all_relerr.csv";
+    // ---- defaults ----
+    std::size_t ITEMS = 500'000;
+    std::size_t WIDTH = 32'768;  // 32768
+    std::size_t DEPTH = 3;
+    std::size_t R = 50'000;
+    std::string outfile = "cms_all_relerr.csv";
     unsigned threads = std::thread::hardware_concurrency();
-    if (threads == 0) threads = 4;
+    if (!threads) threads = 4;
 
-    // Parse CLI
+    // ---- CLI ----
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        auto next = [&]() -> std::string {
-            if (i + 1 < argc) return std::string(argv[++i]);
-            throw std::runtime_error("Missing value for " + arg);
-            };
-        if (arg == "--D")       D = std::stoull(next());
-        else if (arg == "--k")  K = std::stoull(next());
-        else if (arg == "--R")  R = std::stoull(next());
-        else if (arg == "--out") outfile = next();
+        auto next = [&]() { if (i + 1 < argc) return std::string(argv[++i]); throw std::runtime_error("Missing value for " + arg); };
+        if (arg == "--items" || arg == "--D") ITEMS = std::stoull(next());
+        else if (arg == "--width")  WIDTH = std::stoull(next());
+        else if (arg == "--depth")  DEPTH = std::stoull(next());
+        else if (arg == "--R")      R = std::stoull(next());
+        else if (arg == "--out")    outfile = next();
         else if (arg == "--threads") threads = static_cast<unsigned>(std::stoul(next()));
         else if (arg == "--help" || arg == "-h") {
-            std::cout << "Usage: accuracy_bottomk_all_a1 "
-                "[--D 500000] [--k 24500] [--R 50000] "
-                "[--out file.csv] [--threads N]\n";
+            std::cout << "Usage: paralel_CMS_a1 "
+                "--items 500000 --width 32768 --depth 3 --R 50000 "
+                "--out cms_all_relerr.csv --threads N\n";
             return 0;
         }
     }
 
-    std::cout << "Bottom-k accuracy (ALL) on distinct 1..D\n"
-        << "  D=" << D << "  k=" << K << "  R=" << R
+    std::cout << "CMS accuracy (ALL) on A1\n"
+        << "  items=" << ITEMS
+        << "  width=" << WIDTH
+        << "  depth=" << DEPTH
+        << "  R=" << R
         << "  threads=" << threads << "\n"
         << "Writing: " << outfile << "\n";
 
     std::ofstream out(outfile, std::ios::binary);
-    if (!out) {
-        std::cerr << "Cannot open output file: " << outfile << "\n";
-        return 1;
-    }
-    out.setf(std::ios::fixed);
-    out << std::setprecision(8);
+    if (!out) { std::cerr << "Cannot open output file: " << outfile << "\n"; return 1; }
+    out.setf(std::ios::fixed); out << std::setprecision(8);
     out << "function,rep,relerr\n";
 
-    // Precompute keys 1..D
-    std::vector<std::uint32_t> keys; keys.reserve(D);
-    for (std::uint32_t i = 1; i <= D; ++i) keys.push_back(i);
+    // ---------- Build ONE A1 dataset and extract all keys once ----------
+    datasets::A1 base(ITEMS);
+    std::vector<std::uint32_t> keys; keys.reserve(ITEMS);
+    {
+        auto st = base.make_stream();
+        const void* p; std::size_t len;
+        while (st.next(p, len)) keys.push_back(load_le_u32(p));
+    }
 
-    // Function list
+    // ---------- True frequencies over distinct keys ----------
+    std::unordered_map<std::uint32_t, std::uint32_t> freq;
+    freq.reserve(keys.size() / 2 + 1024);
+    for (auto v : keys) ++freq[v];
+
+    std::vector<std::uint32_t> distinct;
+    distinct.reserve(freq.size());
+    for (auto& kv : freq) distinct.push_back(kv.first);
+
+    // ---------- families ----------
     enum { IDX_MS, IDX_STAB, IDX_TORNADO_D4, IDX_RAPID32, NUM_FUNCS };
     const char* NAMES[NUM_FUNCS] = { "MultShift", "SimpleTab", "TornadoD4", "RapidHash32" };
 
-    // Pre-generate seeds for MS & Rapid only (tabulation stays seedless)
-    struct RepParams { std::uint64_t ms_a, ms_b, rapid_seed; };
-    std::vector<RepParams> params(R);
+    // ---------- seeds per repetition and row (for MS & Rapid only) ----------
+    struct RepSeeds {
+        std::vector<std::pair<std::uint64_t, std::uint64_t>> row_ms_ab; // (a,b) per row for MS
+        std::vector<std::uint64_t> row_rapid;                          // seed per row for Rapid
+    };
+    std::vector<RepSeeds> seeds(R);
     for (std::size_t r = 0; r < R; ++r) {
-        params[r].ms_a = rng::get_u64();
-        params[r].ms_b = rng::get_u64();
-        params[r].rapid_seed = rng::get_u64();
+        seeds[r].row_ms_ab.resize(DEPTH);
+        seeds[r].row_rapid.resize(DEPTH);
+        for (std::size_t d = 0; d < DEPTH; ++d) {
+            seeds[r].row_ms_ab[d] = { rng::get_u64(), rng::get_u64() };
+            seeds[r].row_rapid[d] = rng::get_u64();
+        }
     }
 
-    // Concurrency primitives
-    std::mutex file_mtx;         // protect final file writes
-    std::mutex rng_mtx;          // protect RNG usage inside seedless set_params()
-    std::mutex cout_mtx;         // protect progress printing
+    // ---------- helpers ----------
+    auto mean_relative_error = [&](const sketch::CountMin& cms) -> double {
+        long double sum = 0.0L;
+        std::size_t cnt = 0;
+        for (auto k : distinct) {
+            const std::uint32_t truef = freq.find(k)->second; // >0 by construction
+            const std::uint32_t estf = cms.estimate(k);
+            sum += (static_cast<long double>(estf) - static_cast<long double>(truef))
+                / static_cast<long double>(truef);
+            ++cnt;
+        }
+        return (cnt ? static_cast<double>(sum / cnt) : 0.0);
+        };
+
+    // ---------- parallel loop ----------
+    std::mutex file_mtx;
+    std::mutex cout_mtx;
+    std::mutex rng_mtx; // guard seedless tabulation set_params() so rows differ deterministically
     std::atomic<std::size_t> done{ 0 };
     constexpr std::size_t PROG_STEP = 1000;
 
     auto worker = [&](unsigned tid) {
         std::ostringstream buf;
+
         for (std::size_t r = tid; r < R; r += threads) {
-            // 1) Hashers that use pre-generated params (no RNG lock)
-            hashfn::MS h_ms; h_ms.set_params(params[r].ms_a, params[r].ms_b);
 
-            rapid::RapidHash32 h_rapid;
-            h_rapid.set_params(params[r].rapid_seed, rapid_secret[0], rapid_secret[1], rapid_secret[2]);
+            auto run_family = [&](int family_idx) {
+                sketch::CountMin cms(WIDTH, DEPTH);
 
-            // 2) Seedless tabulation families (guard RNG internally)
-            hashfn::SimpleTab32    h_stab;
-            hashfn::TornadoTab32D4 h_tor4;
-            {
-                std::lock_guard<std::mutex> lk(rng_mtx);
-                h_stab.set_params();   // seedless (Poly32 via rng::get_u64())
-                h_tor4.set_params();   // seedless per-row (Poly32 via rng::get_u64())
-            }
-
-            auto run_one = [&](int idx) -> double {
-                sketch::BottomK bk(K);
-                switch (idx) {
-                case IDX_MS:
-                    for (auto x : keys) { bk.push(h_ms.hash(x)); }
-                    break;
-                case IDX_STAB:
-                    for (auto x : keys) { bk.push(h_stab.hash(x)); }
-                    break;
-                case IDX_TORNADO_D4:
-                    for (auto x : keys) { bk.push(h_tor4.hash(x)); }
-                    break;
-                case IDX_RAPID32:
-                    for (auto x : keys) { std::uint32_t hv = h_rapid.hash(&x, sizeof(x)); bk.push(hv); }
-                    break;
+                switch (family_idx) {
+                case IDX_MS: {
+                    std::vector<hashfn::MS> rows(DEPTH);
+                    for (std::size_t d = 0; d < DEPTH; ++d) {
+                        rows[d].set_params(seeds[r].row_ms_ab[d].first,
+                            seeds[r].row_ms_ab[d].second);
+                        cms.set_row(d, &rows[d]);
+                    }
+                    for (auto k : keys) cms.add(k, 1);
+                    return mean_relative_error(cms);
                 }
-                const double est = bk.estimate();
-                return (est - double(D)) / double(D);
+                case IDX_STAB: {
+                    std::vector<hashfn::SimpleTab32> rows(DEPTH);
+                    {   // Seedless, but ensure distinct tables per row in deterministic order
+                        std::lock_guard<std::mutex> lk(rng_mtx);
+                        for (std::size_t d = 0; d < DEPTH; ++d) rows[d].set_params(); // NO args
+                    }
+                    for (std::size_t d = 0; d < DEPTH; ++d) cms.set_row(d, &rows[d]);
+                    for (auto k : keys) cms.add(k, 1);
+                    return mean_relative_error(cms);
+                }
+                case IDX_TORNADO_D4: {
+                    std::vector<hashfn::TornadoTab32D4> rows(DEPTH);
+                    {   // Seedless, but ensure distinct tables per row in deterministic order
+                        std::lock_guard<std::mutex> lk(rng_mtx);
+                        for (std::size_t d = 0; d < DEPTH; ++d) rows[d].set_params(); // NO args
+                    }
+                    for (std::size_t d = 0; d < DEPTH; ++d) cms.set_row(d, &rows[d]);
+                    for (auto k : keys) cms.add(k, 1);
+                    return mean_relative_error(cms);
+                }
+                case IDX_RAPID32: {
+                    std::vector<RapidRow32> rows(DEPTH);
+                    for (std::size_t d = 0; d < DEPTH; ++d) {
+                        rows[d].set_seed(seeds[r].row_rapid[d]);
+                        cms.set_row(d, &rows[d]);
+                    }
+                    for (auto k : keys) cms.add(k, 1);
+                    return mean_relative_error(cms);
+                }
+                }
+                return 0.0; // unreachable
                 };
 
             for (int f = 0; f < NUM_FUNCS; ++f) {
-                const double relerr = run_one(f);
+                const double relerr = run_family(f);
                 buf << NAMES[f] << "," << (r + 1) << "," << relerr << "\n";
             }
 
-            // Progress (approx every 1000 reps)
+            // progress ( every 1000 reps)
             std::size_t n = done.fetch_add(1, std::memory_order_relaxed) + 1;
             if ((n % PROG_STEP) == 0 || n == R) {
                 std::lock_guard<std::mutex> io(cout_mtx);
@@ -150,24 +219,14 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Single, RAII-protected flush of this thread’s output
-        {
-            std::lock_guard<std::mutex> fl(file_mtx);
-            out << buf.str();
-        }
+        { std::lock_guard<std::mutex> fl(file_mtx); out << buf.str(); }
         };
 
-    // Launch pool
     std::vector<std::thread> pool; pool.reserve(threads);
     for (unsigned t = 0; t < threads; ++t) pool.emplace_back(worker, t);
     for (auto& th : pool) th.join();
 
-    // Finish progress line nicely
-    {
-        std::lock_guard<std::mutex> io(cout_mtx);
-        std::cout << "\n";
-    }
-
+    { std::lock_guard<std::mutex> io(cout_mtx); std::cout << "\n"; }
     std::cout << "Done.\n";
     return 0;
 }
