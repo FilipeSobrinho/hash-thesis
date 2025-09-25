@@ -51,7 +51,7 @@ static inline std::uint32_t load_le_u32(const void* p) {
 
 int main(int argc, char** argv) {
     // Defaults
-    std::size_t ITEMS = 1000'000;   // total items in A1 stream  (alias: --D)
+    std::size_t ITEMS = 500'000;   // total items in A1 stream  (alias: --D)
     std::size_t K = 24'500;    // bottom-k size
     std::size_t R = 1'000;    // repetitions
     std::string outfile = "bottomk_all_relerr.csv";

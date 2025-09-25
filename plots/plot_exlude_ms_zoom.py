@@ -1,6 +1,6 @@
-# plot_bottomk_all_strip.py
-# Strip plot for multiple hash functions from CSV: function,rep,relerr
+﻿# Strip plot for multiple hash functions from CSV: function,rep,relerr
 # Produces a single figure with one strip per function.
+# --- Auto-zoom: include ALL points from non-MultShift functions ---
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import moment
@@ -49,9 +49,13 @@ pad = 0.02 * max(1e-12, hi - lo)   # small visual padding
 plt.xlim(lo - pad, hi + pad)
 
 plt.xlabel('Relative error')
-yticks = [i for i in range(len(funcs))]
-ylabs  = [f'{fn}\n6th moment={m6[fn]:.2g}' for fn in funcs]
-plt.yticks(yticks, ylabs)
+yticks = list(range(len(funcs)))
+ylabs  = [f"{fn}\nμ6={m6[fn]:.2g}" for fn in funcs]  # second line beneath the name
+
+ax = plt.gca()
+ax.set_yticks(yticks)
+ax.set_yticklabels(ylabs)
+
 plt.tight_layout()
-plt.savefig('bottomk_all_strip.png', dpi=150, bbox_inches='tight')
+plt.savefig('exclude_ms.png', dpi=150, bbox_inches='tight')
 print('Saved bottomk_all_strip.png from', infile)

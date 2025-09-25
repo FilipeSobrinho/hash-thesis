@@ -61,7 +61,7 @@ static double jaccard_true_from_vectors(const std::vector<std::uint32_t>& A_keys
 }
 
 int main(int argc, char** argv) {
-    std::size_t ITEMS = 1'000'000;       // total stream items
+    std::size_t ITEMS = 500'000;       // total stream items
     std::size_t K = 200;             // OPH bins
     std::size_t R = 50'000;          // repetitions
     std::uint64_t split_seed = 0xC0FFEEull; // SAME dataset across reps

@@ -1,4 +1,4 @@
-# plot_cms_strip_zoom_manual.py
+﻿# plot_cms_strip_zoom_manual.py
 # Strip plot from CSV (function,rep,relerr) with adjustable zoom.
 import numpy as np
 import matplotlib.pyplot as plt
@@ -61,10 +61,20 @@ else:
 pad = 0.05 * max(1e-12, (hi - lo))
 plt.xlim(lo - pad, hi + pad)
 
-plt.xlabel('Relative error ((est - true) / true)')
-plt.yticks(range(len(funcs)), [f'{fn}\n6th moment={m6[fn]:.2g}' for fn in funcs])
+plt.xlabel('Relative error')
+yticks = list(range(len(funcs)))
+ylabs  = [f"{fn}\nμ6={m6[fn]:.2g}" for fn in funcs]  # second line beneath the name
+
+ax = plt.gca()
+ax.set_yticks(yticks)
+ax.set_yticklabels(ylabs)
+
+# Optional: make the two-line labels nicely centered
+#for lab in ax.get_yticklabels():
+#    lab.set_multialignment('center')
+
 plt.tight_layout()
-outpng = 'cms_all_strip_zoom_manual.png'
+outpng = 'zoom.png'
 plt.savefig(outpng, dpi=150, bbox_inches='tight')
 print(f'Saved {outpng} from', infile)
 

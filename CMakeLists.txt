@@ -21,6 +21,11 @@ set(REPO_SEED_DIR "${CMAKE_SOURCE_DIR}/seed")
 file(TO_CMAKE_PATH "${REPO_SEED_DIR}" REPO_SEED_DIR_FWD)
 add_compile_definitions(RNG_DEFAULT_SEED_DIR="${REPO_SEED_DIR_FWD}")
 
+# Always read seeds from the repo's seed/ directory
+set(REPO_ROOT_DIR "${CMAKE_SOURCE_DIR}")
+file(TO_CMAKE_PATH "${REPO_ROOT_DIR}" REPO_ROOT_DIR_FWD)
+add_compile_definitions(ROOT_DEFAULT_DIR="${REPO_ROOT_DIR_FWD}")
+
 # Executables (add sources as you implement things)
 add_executable(bench_timing  src/main_bench_timing.cpp)
 add_executable(accuracy      src/main_accuracy.cpp)
