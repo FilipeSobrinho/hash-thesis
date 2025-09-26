@@ -16,3 +16,6 @@ results/
 # Python
 __pycache__/
 *.pyc
+
+2025-01-01-15.json.gz
+text8.zip

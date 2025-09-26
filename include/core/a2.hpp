@@ -7,8 +7,7 @@
 // - Fully materialized; same usage as A1: make_stream() -> StreamPtr (len==4).
 // - Provides a 50/50 position-based split for OPH via A2Split.
 //
-// NOTE: Place "block0.mg" in your project root (or pass an absolute path by
-//       editing DEFAULT_FILE below, or adjust your working directory).
+
 
 #include <cstdint>
 #include <cstddef>
