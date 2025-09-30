@@ -8,7 +8,7 @@ import csv
 import sys
 from collections import defaultdict
 
-infile = 'oph_all_relerr.csv'
+infile = 'cms_r2_relerr.csv'
 if len(sys.argv) > 1:
     infile = sys.argv[1]
     
