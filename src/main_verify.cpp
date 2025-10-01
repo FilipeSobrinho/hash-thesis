@@ -1,110 +1,112 @@
-// bench_ms_a2.cpp
-// Measure pure hashing speed of hashfn::MS on dataset A2 (32-bit keys).
-// No sketches, no parallelism. Reports hashes/sec and ns/hash.
-//
-// CLI:
-//   --loops L     repeat the full pass L times (default 10)
-//   --seedA S     fix 'a' (64-bit)  [optional]
-//   --seedB S     fix 'b' (64-bit)  [optional]
-//   --help
-//
-// Build:
-//   add_executable(bench_ms_a2 src/bench_ms_a2.cpp)
-//   target_include_directories(bench_ms_a2 PRIVATE ${CMAKE_SOURCE_DIR}/include)
-//
-// Run (example):
-//   build\win-release-vs\Release\bench_ms_a2.exe --loops 50
-
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
-#include <chrono>
+#include <unordered_set>
 #include <iostream>
-#include <iomanip>
 
-#include "core/a2.hpp"   // expects A2 with contiguous 4-byte items (N items)
-#include "hash/ms.hpp"       // hashfn::MS  (32-bit input -> 32-bit output)
-#include "core/randomgen.hpp"
+#if __has_include(<filesystem>)
+#include <filesystem>
+#endif
 
-static inline std::uint32_t load_le_u32(const std::uint8_t* p) {
-    return (std::uint32_t)p[0]
-        | ((std::uint32_t)p[1] << 8)
-        | ((std::uint32_t)p[2] << 16)
-        | ((std::uint32_t)p[3] << 24);
+#include "core/r2.hpp"
+
+// 32-bit FNV-1a over arbitrary bytes
+static inline std::uint32_t fnv1a32(const std::uint8_t* data, std::size_t nbytes) {
+    constexpr std::uint32_t FNV_PRIME = 16777619u;
+    std::uint32_t h = 2166136261u;
+    for (std::size_t i = 0; i < nbytes; ++i) { h ^= data[i]; h *= FNV_PRIME; }
+    return h;
 }
+
+// A small view wrapper for distinct counting (hash by FNV fold)
+struct View {
+    const std::uint8_t* p;
+    std::uint32_t len;
+};
+struct ViewHash {
+    std::size_t operator()(const View& v) const noexcept {
+        return (std::size_t)fnv1a32(v.p, v.len);
+    }
+};
+struct ViewEq {
+    bool operator()(const View& a, const View& b) const noexcept {
+        if (a.len != b.len) return false;
+        return std::memcmp(a.p, b.p, a.len) == 0;
+    }
+};
 
 int main(int argc, char** argv) {
     try {
-        // ---- options ----
-        std::size_t loops = 10000;
-        bool haveA = false, haveB = false;
-        std::uint64_t A = 0, B = 0;
+#if __has_include(<filesystem>)
+        std::cerr << "cwd: " << std::filesystem::current_path().string() << "\n";
+#endif
 
+        std::string inpath = std::string(ROOT_DEFAULT_DIR) + "/" + datasets::R2_DEFAULT_FILE;
         for (int i = 1; i < argc; ++i) {
             std::string a = argv[i];
-            auto next = [&]() { if (i + 1 < argc) return std::string(argv[++i]); throw std::runtime_error("missing value for " + a); };
-            if (a == "--loops")  loops = std::stoull(next());
-            else if (a == "--seedA") { A = std::stoull(next()); haveA = true; }
-            else if (a == "--seedB") { B = std::stoull(next()); haveB = true; }
+            if (a == "--file" && i + 1 < argc) inpath = argv[++i];
             else if (a == "--help" || a == "-h") {
-                std::cout << "Usage: bench_ms_a2 [--loops L] [--seedA u64] [--seedB u64]\n";
-                return 0;
+                std::cout << "Usage: verify_r2 [--file path_to_words.txt]\n"; return 0;
             }
         }
 
-        // ---- dataset ----
-        datasets::A2 ds;                         // must expose buffer() with 4*N bytes, and size() = N
-        const auto& buf = ds.buffer();
-        const std::size_t N = ds.size();
-        if (buf.size() != N * 4) {
-            std::cerr << "A2: expected contiguous 4-byte items; got buffer=" << buf.size()
-                << " bytes for N=" << N << "\n";
-            return 2;
+        // Load full R2 (first 1e5 words)
+        datasets::R2 r2(inpath);
+        auto s = r2.make_stream();
+
+        const auto& buf = r2.buffer();
+        std::cout << "R2 loaded items: " << r2.size() << " (variable-length words)\n";
+        std::cout << "R2 buffer bytes : " << buf.size() << "\n";
+        std::cout << "R2 FNV1a32 checksum of buffer: 0x" << std::hex
+            << fnv1a32(buf.data(), buf.size()) << std::dec << "\n";
+
+        // Iterate and count distinct
+        const void* p; std::size_t len;
+        std::unordered_set<View, ViewHash, ViewEq> distinct;
+        distinct.reserve(r2.size());
+        std::size_t seen = 0;
+        while (s.next(p, len)) {
+            ++seen;
+            View v{ (const std::uint8_t*)p, static_cast<std::uint32_t>(len) };
+            distinct.insert(v);
         }
-        std::cout << "A2 items: " << N << " (4 bytes each)\n";
+        std::cout << "Stream iterated items: " << seen << "\n";
+        std::cout << "Distinct words: " << distinct.size() << "\n";
 
-        // ---- hash function ----
-        hashfn::MS ms;
-        if (!haveA) A = rng::get_u64();
-        if (!haveB) B = rng::get_u64();
-        ms.set_params(A, B);
-        std::cout << "MS params: a=" << A << " (odd enforced), b=" << B << "\n";
-
-        // ---- warm-up (one pass) ----
-        volatile std::uint32_t sink = 0;
-        for (std::size_t i = 0; i < N; ++i) {
-            const std::uint32_t x = load_le_u32(buf.data() + (i * 4));
-            sink ^= ms.hash(x);
+        // Determinism check (rebuild and compare byte-for-byte)
+        datasets::R2 r2b(inpath);
+        if (r2b.buffer() != buf || r2b.size() != r2.size()) {
+            std::cerr << "ERROR: R2 reload differs from first load.\n"; return 3;
         }
+        std::cout << "Determinism OK (reload identical).\n";
 
-        // ---- timed passes ----
-        const auto t0 = std::chrono::steady_clock::now();
-        for (std::size_t L = 0; L < loops; ++L) {
-            for (std::size_t i = 0; i < N; ++i) {
-                const std::uint32_t x = load_le_u32(buf.data() + (i * 4));
-                sink ^= ms.hash(x);
-            }
-        }
-        const auto t1 = std::chrono::steady_clock::now();
-        const double seconds = std::chrono::duration<double>(t1 - t0).count();
-        const std::size_t total_hashes = N * loops;
+        // Split: first half vs second half (position-based)
+        datasets::R2Split split(inpath);
+        std::cout << "Split sizes: A=" << split.sizeA() << " B=" << split.sizeB()
+            << " (sum=" << (split.sizeA() + split.sizeB()) << ")\n";
 
-        // ---- report ----
-        const double hps = total_hashes / seconds;
-        const double nsph = (seconds * 1e9) / double(total_hashes);
-        const double mhps = hps / 1e6;
+        // Jaccard on distinct words of A vs B
+        auto jaccard = [](auto&& Astream, auto&& Bstream)->double {
+            const void* p; std::size_t len;
+            std::unordered_set<View, ViewHash, ViewEq> Aset, Bset;
+            while (Astream.next(p, len)) Aset.insert(View{ (const std::uint8_t*)p,(std::uint32_t)len });
+            while (Bstream.next(p, len)) Bset.insert(View{ (const std::uint8_t*)p,(std::uint32_t)len });
+            std::size_t inter = 0;
+            if (Aset.size() < Bset.size()) { for (auto& v : Aset) inter += Bset.count(v); }
+            else { for (auto& v : Bset) inter += Aset.count(v); }
+            const std::size_t uni = Aset.size() + Bset.size() - inter;
+            return uni ? double(inter) / double(uni) : 1.0;
+            };
 
-        std::cout << std::fixed << std::setprecision(3);
-        std::cout << "Loops: " << loops << "\n";
-        std::cout << "Total hashes: " << total_hashes << "\n";
-        std::cout << "Elapsed: " << seconds << " s\n";
-        std::cout << "Throughput: " << mhps << " Mhash/s\n";
-        std::cout << "Latency: " << nsph << " ns/hash\n";
-        // Prevent optimizing-away:
-        std::cout << "Checksum (ignore): " << std::hex << sink << std::dec << "\n";
+        auto sa = split.make_streamA();
+        auto sb = split.make_streamB();
+        const double J = jaccard(sa, sb);
+        std::cout << "Split Jaccard (distinct words): " << J << "\n";
 
+        std::cout << "R2 verify: OK.\n";
         return 0;
     }
     catch (const std::exception& e) {
