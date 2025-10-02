@@ -1,7 +1,7 @@
-// time_all_r2.cpp
-// Hashing speed on R2 (variable-length words) for:
+// time_all_r1.cpp
+// Hashing speed on R1 (20-byte keys) for:
 // MSVec, TabOnMSVec, TornadoOnMSVec D1..D4, RapidHash32.
-// Always writes CSV (default: r2_speed.csv).
+// Always writes CSV (default: r1_speed.csv).
 // CLI: --loops L  --out file.csv  --help
 #include <cstdint>
 #include <cstring>
@@ -12,7 +12,7 @@
 #include <iomanip>
 #include <fstream>
 #include <array>
-#include "core/r2.hpp"
+#include "core/r1.hpp"
 #include "core/randomgen.hpp"
 #include "hash/msvec.hpp"
 #include "hash/simpletab32.hpp"
@@ -31,19 +31,18 @@ static std::pair<double, std::uint32_t> time_loops(std::size_t loops, Body&& bod
 int main(int argc, char** argv) {
     try {
         std::size_t loops = 1000;
-        std::string out_csv = "r2_speed.csv";
+        std::string out_csv = "r1_speed.csv";
         for (int i = 1; i < argc; ++i) {
             std::string a = argv[i];
             auto next = [&]() { if (i + 1 < argc) return std::string(argv[++i]); throw std::runtime_error("missing value for " + a); };
             if (a == "--loops") loops = std::stoull(next());
             else if (a == "--out") out_csv = next();
-            else if (a == "--help" || a == "-h") { std::cout << "Usage: time_all_r2 [--loops L] [--out file.csv]\n"; return 0; }
+            else if (a == "--help" || a == "-h") { std::cout << "Usage: time_all_r1 [--loops L] [--out file.csv]\n"; return 0; }
         }
 
-        datasets::R2 ds;
-        const auto& buf = ds.buffer();
-        const auto& index = ds.index();
-        const std::size_t N = index.size();
+        datasets::R1 ds;
+        const auto& raw = ds.buffer();
+        const std::size_t N = ds.size(); // N items of 20 bytes
 
         using Coeffs = std::array<std::uint64_t, MSVEC_NUM_COEFFS>;
         Coeffs coeffs; for (auto& c : coeffs) c = rng::get_u64();
@@ -60,26 +59,22 @@ int main(int argc, char** argv) {
         auto push = [&](const char* name, double sec, std::uint32_t sink) {
             const std::size_t total = N * loops;
             rows.push_back({ name, (total / sec) / 1e6, (sec * 1e9) / double(total), sink });
-            };
+        };
 
         auto do_family = [&](auto&& h, const char* name) {
             auto body = [&](volatile std::uint32_t& sink) {
-                for (std::size_t i = 0; i < N; ++i) {
-                    const auto [off, len] = index[i];
-                    const void* p = buf.data() + off;
-                    sink ^= h.hash(p, len);
-                }
+                for (std::size_t i = 0; i < N; ++i) { const void* p = raw.data() + i * 20; sink ^= h.hash(p, 20); }
             };
             auto [sec, s] = time_loops(loops, body); push(name, sec, s);
         };
 
         do_family(msvec, "MSVec");
         do_family(tabms, "TabOnMSVec");
-        do_family(t1, "TornadoOnMSVecD1");
-        do_family(t2, "TornadoOnMSVecD2");
-        do_family(t3, "TornadoOnMSVecD3");
-        do_family(t4, "TornadoOnMSVecD4");
-        do_family(rh32, "RapidHash32");
+        do_family(t1,    "TornadoOnMSVecD1");
+        do_family(t2,    "TornadoOnMSVecD2");
+        do_family(t3,    "TornadoOnMSVecD3");
+        do_family(t4,    "TornadoOnMSVecD4");
+        do_family(rh32,  "RapidHash32");
 
         std::ofstream f(out_csv, std::ios::binary);
         if (!f) { std::cerr << "Cannot open " << out_csv << "\n"; return 3; }
@@ -88,6 +83,5 @@ int main(int argc, char** argv) {
         for (const auto& r : rows) { f << r.name << "," << r.mhps << "," << r.nsph << ",0x" << std::hex << r.checksum << std::dec << "," << loops << "," << N << "\n"; }
         std::cout << "Wrote CSV: " << out_csv << "\n";
         return 0;
-    }
-    catch (const std::exception& e) { std::cerr << "FATAL: " << e.what() << "\n"; return 1; }
+    } catch (const std::exception& e) { std::cerr << "FATAL: " << e.what() << "\n"; return 1; }
 }

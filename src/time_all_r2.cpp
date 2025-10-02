@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
         auto push = [&](const char* name, double sec, std::uint32_t sink) {
             const std::size_t total = N * loops;
             rows.push_back({ name, (total / sec) / 1e6, (sec * 1e9) / double(total), sink });
-            };
+        };
 
         auto do_family = [&](auto&& h, const char* name) {
             auto body = [&](volatile std::uint32_t& sink) {
@@ -75,11 +75,11 @@ int main(int argc, char** argv) {
 
         do_family(msvec, "MSVec");
         do_family(tabms, "TabOnMSVec");
-        do_family(t1, "TornadoOnMSVecD1");
-        do_family(t2, "TornadoOnMSVecD2");
-        do_family(t3, "TornadoOnMSVecD3");
-        do_family(t4, "TornadoOnMSVecD4");
-        do_family(rh32, "RapidHash32");
+        do_family(t1,    "TornadoOnMSVecD1");
+        do_family(t2,    "TornadoOnMSVecD2");
+        do_family(t3,    "TornadoOnMSVecD3");
+        do_family(t4,    "TornadoOnMSVecD4");
+        do_family(rh32,  "RapidHash32");
 
         std::ofstream f(out_csv, std::ios::binary);
         if (!f) { std::cerr << "Cannot open " << out_csv << "\n"; return 3; }
@@ -88,6 +88,5 @@ int main(int argc, char** argv) {
         for (const auto& r : rows) { f << r.name << "," << r.mhps << "," << r.nsph << ",0x" << std::hex << r.checksum << std::dec << "," << loops << "," << N << "\n"; }
         std::cout << "Wrote CSV: " << out_csv << "\n";
         return 0;
-    }
-    catch (const std::exception& e) { std::cerr << "FATAL: " << e.what() << "\n"; return 1; }
+    } catch (const std::exception& e) { std::cerr << "FATAL: " << e.what() << "\n"; return 1; }
 }

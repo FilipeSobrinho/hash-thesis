@@ -30,6 +30,7 @@ add_compile_definitions(ROOT_DEFAULT_DIR="${REPO_ROOT_DIR_FWD}")
 add_executable(bench_timing  src/main_bench_timing.cpp)
 add_executable(accuracy      src/main_accuracy.cpp)
 add_executable(verify        src/main_verify.cpp)
+
 add_executable(serial_CM_a1 src/serial_CM_a1.cpp)
 add_executable(serial_CM_a2 src/serial_CM_a2.cpp)
 add_executable(serial_CM_r1 src/serial_CM_r1.cpp)
@@ -42,6 +43,14 @@ add_executable(serial_OPH_a1 src/serial_OPH_a1.cpp)
 add_executable(serial_OPH_a2 src/serial_OPH_a2.cpp)
 add_executable(serial_OPH_r1 src/serial_OPH_r1.cpp)
 add_executable(serial_OPH_r2 src/serial_OPH_r2.cpp)
+
+add_executable(time_all_a2 src/time_all_a2.cpp)
+add_executable(time_all_r1 src/time_all_r1.cpp)
+add_executable(time_all_r2 src/time_all_r2.cpp)
+
+add_executable(speed_BK_a2 src/serial_BK_a2.cpp)
+add_executable(speed_CM_a2 src/serial_CM_a2.cpp)
+add_executable(speed_OPH_a2 src/serial_OPH_a2.cpp)
 
 target_include_directories(bench_timing PRIVATE include)
 target_include_directories(accuracy     PRIVATE include)
@@ -58,3 +67,12 @@ target_include_directories(serial_OPH_a1 PRIVATE include)
 target_include_directories(serial_OPH_a2 PRIVATE include)
 target_include_directories(serial_OPH_r1 PRIVATE include)
 target_include_directories(serial_OPH_r2 PRIVATE include)
+
+target_include_directories(time_all_a2 PRIVATE include)
+target_include_directories(time_all_r1 PRIVATE include)
+target_include_directories(time_all_r2 PRIVATE include)
+
+target_include_directories(speed_BK_a2 PRIVATE include)
+target_include_directories(speed_CM_a2 PRIVATE include)
+target_include_directories(speed_OPH_a2 PRIVATE include)
+
