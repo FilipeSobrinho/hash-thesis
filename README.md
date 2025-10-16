@@ -45,8 +45,8 @@ plot_all.py
 Dataset generation/extraction in include/core/
 
 ## Tips
-* Use **Release | x64** for meaningful numbers.
-* Close heavy background apps to reduce noise.
+* Close all background apps to reduce noise.
+* Windows: set Power Plan to **High performance** for more stable timings.
 
 
 
