@@ -28,7 +28,7 @@ run_speed_and_time.ps1
 From the repo root:
 
 ```
-run_all
+run_all.ps1
 ```
 
 * Generates **CSV** for accuracy inside a new folder under `results/`.
