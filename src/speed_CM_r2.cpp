@@ -1,49 +1,71 @@
-// time_all_r2.cpp
-// Hashing speed on R2 (variable-length words) for:
-// MSVec, TabOnMSVec, TornadoOnMSVec D1..D4, RapidHash32.
-// Always writes CSV (default: r2_speed.csv).
-// CLI: --loops L  --out file.csv  --help
+
 #include <cstdint>
-#include <cstring>
 #include <string>
 #include <vector>
 #include <chrono>
 #include <iostream>
 #include <iomanip>
 #include <fstream>
+#include <stdexcept>
 #include <array>
-#include "core/r2.hpp"
+
 #include "core/randomgen.hpp"
-#include "hash/msvec.hpp"
-#include "hash/simpletab32.hpp"
-#include "hash/tornado32.hpp"
 #include "hash/rapidhash.h"
+#include "hash/tornado32.hpp"
+#include "hash/msvec.hpp"
+#include "sketch/bottomk.hpp"
+#include "sketch/countmin.hpp"
+#include "sketch/oph.hpp"
+#include "hash/simpletab32.hpp"
+
+
+#if defined(_MSC_VER)
+#define FINLINE __forceinline
+#else
+#define FINLINE inline __attribute__((always_inline))
+#endif
+
+template <class Body>
+static std::pair<double, std::uint32_t> time_body(std::size_t loops, Body&& body) {
+    volatile std::uint32_t sink = 0;
+    body(sink); // warmup
+    const auto t0 = std::chrono::steady_clock::now();
+    for (std::size_t L = 0; L < loops; ++L) body(sink);
+    const auto t1 = std::chrono::steady_clock::now();
+    double sec = std::chrono::duration<double>(t1 - t0).count();
+    return { sec, sink };
+}
+
+// speed_CM_r2.cpp
+#include "core/r2.hpp"
 #include <random>
 #include <algorithm>
 #include <functional>
 #include <unordered_map>
 
-template <typename Body>
-static std::pair<double, std::uint32_t> time_loops(std::size_t loops, Body&& body) {
-    volatile std::uint32_t sink = 0; body(sink);
-    const auto t0 = std::chrono::steady_clock::now();
-    for (std::size_t L = 0; L < loops; ++L) body(sink);
-    const auto t1 = std::chrono::steady_clock::now();
-    return { std::chrono::duration<double>(t1 - t0).count(), sink };
-}
+// Row hash for CMS (maps 32-bit key -> column)
+struct RowHash32 {
+    std::uint32_t a=0,b=0;
+    void set_seed(std::uint64_t s){ a=(std::uint32_t)s|1u; b=(std::uint32_t)(s>>32); }
+    std::uint32_t hash(std::uint32_t x) const { return a * x + b; }
+};
 
 int main(int argc, char** argv) {
     try {
-        std::size_t loops = 5000;
-        std::string out_csv = "r2_speed.csv";
+        std::size_t loops = 1000;
+        std::size_t WIDTH = 32768;
+        std::size_t DEPTH = 3;
+        std::string out_csv = "r2_speed_cm.csv";
         int rounds = 10; // number of randomized passes
 
         for (int i = 1; i < argc; ++i) {
             std::string a = argv[i];
             auto next = [&]() { if (i + 1 < argc) return std::string(argv[++i]); throw std::runtime_error("missing value for " + a); };
             if (a == "--loops") loops = std::stoull(next());
+            else if (a == "--width") WIDTH = std::stoull(next());
+            else if (a == "--depth") DEPTH = std::stoull(next());
             else if (a == "--out") out_csv = next();
-            else if (a == "--help" || a == "-h") { std::cout << "Usage: time_all_r2 [--loops L] [--out file.csv]\n"; return 0; }
+            else if (a == "--help" || a == "-h") { std::cout << "Usage: speed_CM_r2 [--loops L] [--width W] [--depth D] [--out file.csv]\n"; return 0; }
         }
 
         datasets::R2 ds;
@@ -59,35 +81,44 @@ int main(int argc, char** argv) {
         hashfn::TornadoOnMSVecD2 t2;   t2.set_params(coeffs, true);
         hashfn::TornadoOnMSVecD3 t3;   t3.set_params(coeffs, true);
         hashfn::TornadoOnMSVecD4 t4;   t4.set_params(coeffs, true);
-        rapid::RapidHash32 rh32;       rh32.set_params(rng::get_u64(), rapid_secret[0], rapid_secret[1], rapid_secret[2]);
+        rapid::RapidHash32 rh;         rh.set_params(rng::get_u64(), rapid_secret[0], rapid_secret[1], rapid_secret[2]);
+
+        // Row hashers for CMS (seeded once)
+        std::vector<RowHash32> rows(DEPTH);
+        for (std::size_t d=0; d<DEPTH; ++d) rows[d].set_seed(rng::get_u64());
 
         struct Row { const char* name; double mhps; double nsph; std::uint32_t checksum; };
-        std::vector<Row> rows;
-        auto push = [&](const char* name, double sec, std::uint32_t sink) {
+        std::vector<Row> out;
+        auto push_row = [&](const char* name, double sec, std::uint32_t sink) {
             const std::size_t total = N * loops;
-            rows.push_back({ name, (total / sec) / 1e6, (sec * 1e9) / double(total), sink });
+            out.push_back({ name, (total / sec) / 1e6, (sec * 1e9) / double(total), sink });
         };
 
-        auto do_family = [&](auto&& h, const char* name) {
+        auto bench_fam = [&](auto& H, const char* name) {
             auto body = [&](volatile std::uint32_t& sink) {
+                sketch::CountMin cms(WIDTH, DEPTH);
+                for (std::size_t d=0; d<DEPTH; ++d) cms.set_row(d, &rows[d]);
                 for (std::size_t i = 0; i < N; ++i) {
-                    const auto [off, len] = index[i];
-                    const void* p = buf.data() + off;
-                    sink ^= h.hash(p, len);
+                    const auto off = index[i].first;
+                    const auto len = index[i].second;
+                    std::uint32_t hv = H.hash(buf.data() + off, len);
+                    cms.add(hv, 1);
+                    sink ^= hv;
                 }
             };
-            auto [sec, s] = time_loops(loops, body); push(name, sec, s);
+            auto [sec, s] = time_body(loops, body);
+            push_row(name, sec, s);
         };
 
 struct Job { const char* name; std::function<void()> run; };
 std::vector<Job> jobs = {
-    {"MSVec", [&] { do_family(msvec, "MSVec"); } },
-    {"TabOnMSVec", [&]{ do_family(tabms, "TabOnMSVec"); }},
-    {"TornadoOnMSVecD1", [&]{ do_family(t1, "TornadoOnMSVecD1"); }},
-    {"TornadoOnMSVecD2", [&]{ do_family(t2, "TornadoOnMSVecD2"); }},
-    {"TornadoOnMSVecD3", [&]{ do_family(t3, "TornadoOnMSVecD3"); }},
-    {"TornadoOnMSVecD4", [&]{ do_family(t4, "TornadoOnMSVecD4"); }},
-    {"RapidHash32", [&]{ do_family(rh32, "RapidHash32"); }},
+    {"MSVec", [&] {bench_fam(msvec, "MSVec"); }},
+    {"TabOnMSVec", [&]{ bench_fam(tabms, "TabOnMSVec"); }},
+    {"TornadoOnMSVecD1", [&]{ bench_fam(t1, "TornadoOnMSVecD1"); }},
+    {"TornadoOnMSVecD2", [&]{ bench_fam(t2, "TornadoOnMSVecD2"); }},
+    {"TornadoOnMSVecD4", [&]{ bench_fam(t4, "TornadoOnMSVecD4"); }},
+    {"TornadoOnMSVecD3", [&]{ bench_fam(t3, "TornadoOnMSVecD3"); }},
+    {"RapidHash32", [&]{ bench_fam(rh, "RapidHash32"); }},
 };
 for (int _r = 0; _r < rounds; ++_r) {
     std::mt19937_64 _ord_rng(std::random_device{}());
@@ -96,8 +127,8 @@ for (int _r = 0; _r < rounds; ++_r) {
 }
 {
     std::unordered_map<std::string, std::vector<Row>> _groups;
-    _groups.reserve(rows.size());
-    for (const auto& r : rows) _groups[std::string(r.name)].push_back(r);
+    _groups.reserve(out.size());
+    for (const auto& r : out) _groups[std::string(r.name)].push_back(r);
     std::vector<Row> _collapsed; _collapsed.reserve(_groups.size());
     auto _median = [](std::vector<double>& v) {
         if (v.empty()) return 0.0;
@@ -120,16 +151,19 @@ for (int _r = 0; _r < rounds; ++_r) {
         double nsph_med = _median(nsphv);
         _collapsed.push_back(Row{ nm, mhps_med, nsph_med, chk });
     }
-    rows.swap(_collapsed);
+    out.swap(_collapsed);
 }
 
 
         std::ofstream f(out_csv, std::ios::binary);
         if (!f) { std::cerr << "Cannot open " << out_csv << "\n"; return 3; }
         f.setf(std::ios::fixed); f << std::setprecision(6);
-        f << "function,Mhash_s,ns_per_hash,checksum_hex,loops,N\n";
-        for (const auto& r : rows) { f << r.name << "," << r.mhps << "," << r.nsph << ",0x" << std::hex << r.checksum << std::dec << "," << loops << "," << N << "\n"; }
-        std::cout << "Wrote CSV: " << out_csv << "\n";
+        f << "function,Mhash_s,ns_per_hash,checksum_hex,loops,N,width,depth\n";
+        for (const auto& r : out) {
+            f << r.name << "," << r.mhps << "," << r.nsph << ",0x" << std::hex << r.checksum << std::dec
+              << "," << loops << "," << N << "," << WIDTH << "," << DEPTH << "\n";
+        }
+        std::cout << "Wrote: " << out_csv << "\n";
         return 0;
     } catch (const std::exception& e) { std::cerr << "FATAL: " << e.what() << "\n"; return 1; }
 }

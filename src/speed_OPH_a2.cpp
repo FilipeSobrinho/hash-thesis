@@ -17,6 +17,10 @@
 #include "sketch/bottomk.hpp"
 #include "sketch/countmin.hpp"
 #include "sketch/oph.hpp"
+#include <random>
+#include <algorithm>
+#include <functional>
+#include <unordered_map>
 
 static inline std::uint32_t load_le_u32(const std::uint8_t* p) {
     return (std::uint32_t)p[0] | ((std::uint32_t)p[1] << 8) |
@@ -44,9 +48,11 @@ static std::pair<double, std::uint32_t> time_body(std::size_t loops, Body&& body
 // Measure time to INSERT all A2 keys into OPH (One-Permutation Hashing), for multiple hash families.
 int main(int argc, char** argv) {
     try {
-        std::size_t loops = 400;
+        std::size_t loops = 5000;
         std::size_t K = 200;
         std::string out_csv = "a2_speed_oph.csv";
+        int rounds = 10; // number of randomized passes
+
         for (int i = 1; i < argc; ++i) {
             std::string a = argv[i];
             auto next = [&]() { if (i + 1 < argc) return std::string(argv[++i]); throw std::runtime_error("missing value for " + a); };
@@ -105,13 +111,50 @@ int main(int argc, char** argv) {
             push_row(name, sec, s);
         };
 
-        bench_u32(ms,   "MS");
-        bench_u32(stab, "SimpleTab32");
-        bench_u32(t1,   "Tornado32_D1");
-        bench_u32(t2,   "Tornado32_D2");
-        bench_u32(t3,   "Tornado32_D3");
-        bench_u32(t4,   "Tornado32_D4");
-        bench_ptr(rh,   "RapidHash32");
+struct Job { const char* name; std::function<void()> run; };
+std::vector<Job> jobs = {
+	{"MS", [&] { bench_u32(ms, "MS"); }},
+    {"SimpleTab32", [&]{ bench_u32(stab, "SimpleTab32"); }},
+    {"Tornado32_D1", [&]{ bench_u32(t1, "Tornado32_D1"); }},
+    {"Tornado32_D2", [&]{ bench_u32(t2, "Tornado32_D2"); }},
+    {"Tornado32_D3", [&]{ bench_u32(t3, "Tornado32_D3"); }},
+    {"Tornado32_D4", [&]{ bench_u32(t4, "Tornado32_D4"); }},
+    {"RapidHash32", [&]{ bench_ptr(rh, "RapidHash32"); }},
+};
+for (int _r = 0; _r < rounds; ++_r) {
+    std::mt19937_64 _ord_rng(std::random_device{}());
+    std::shuffle(jobs.begin(), jobs.end(), _ord_rng);
+    for (auto& j : jobs) j.run();
+}
+{
+    std::unordered_map<std::string, std::vector<Row>> _groups;
+    _groups.reserve(rows.size());
+    for (const auto& r : rows) _groups[std::string(r.name)].push_back(r);
+    std::vector<Row> _collapsed; _collapsed.reserve(_groups.size());
+    auto _median = [](std::vector<double>& v) {
+        if (v.empty()) return 0.0;
+        size_t n = v.size();
+        std::nth_element(v.begin(), v.begin() + n/2, v.end());
+        double m = v[n/2];
+        if (n % 2 == 0) {
+            auto max_lower = *std::max_element(v.begin(), v.begin() + n/2);
+            m = 0.5 * (m + max_lower);
+        }
+        return m;
+    };
+    for (auto& kv : _groups) {
+        const char* nm = kv.second.front().name;
+        std::vector<double> mhpsv; mhpsv.reserve(kv.second.size());
+        std::vector<double> nsphv; nsphv.reserve(kv.second.size());
+        std::uint32_t chk = 0;
+        for (auto& r : kv.second) { mhpsv.push_back(r.mhps); nsphv.push_back(r.nsph); chk ^= r.checksum; }
+        double mhps_med = _median(mhpsv);
+        double nsph_med = _median(nsphv);
+        _collapsed.push_back(Row{ nm, mhps_med, nsph_med, chk });
+    }
+    rows.swap(_collapsed);
+}
+
 
         std::ofstream f(out_csv, std::ios::binary);
         if (!f) { std::cerr << "Cannot open " << out_csv << "\n"; return 3; }

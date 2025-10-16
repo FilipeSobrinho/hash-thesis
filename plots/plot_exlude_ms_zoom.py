@@ -8,7 +8,7 @@ import csv
 import sys
 from collections import defaultdict
 
-infile = 'cms_all_relerr.csv'
+infile = 'cms_a1_relerr.csv'
 if len(sys.argv) > 1:
     infile = sys.argv[1]
 
@@ -57,5 +57,5 @@ ax.set_yticks(yticks)
 ax.set_yticklabels(ylabs)
 
 plt.tight_layout()
-plt.savefig('exclude_ms.png', dpi=150, bbox_inches='tight')
-print('Saved bottomk_all_strip.png from', infile)
+plt.savefig('cms_a1_zoom.png', dpi=150, bbox_inches='tight')
+print('Saved bottomk_a1_zoom.png from', infile)

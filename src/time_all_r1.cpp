@@ -18,6 +18,10 @@
 #include "hash/simpletab32.hpp"
 #include "hash/tornado32.hpp"
 #include "hash/rapidhash.h"
+#include <random>
+#include <algorithm>
+#include <functional>
+#include <unordered_map>
 
 template <typename Body>
 static std::pair<double, std::uint32_t> time_loops(std::size_t loops, Body&& body) {
@@ -30,8 +34,10 @@ static std::pair<double, std::uint32_t> time_loops(std::size_t loops, Body&& bod
 
 int main(int argc, char** argv) {
     try {
-        std::size_t loops = 1000;
+        std::size_t loops = 5000;
         std::string out_csv = "r1_speed.csv";
+        int rounds = 10; // number of randomized passes
+
         for (int i = 1; i < argc; ++i) {
             std::string a = argv[i];
             auto next = [&]() { if (i + 1 < argc) return std::string(argv[++i]); throw std::runtime_error("missing value for " + a); };
@@ -68,13 +74,51 @@ int main(int argc, char** argv) {
             auto [sec, s] = time_loops(loops, body); push(name, sec, s);
         };
 
-        do_family(msvec, "MSVec");
-        do_family(tabms, "TabOnMSVec");
-        do_family(t1,    "TornadoOnMSVecD1");
-        do_family(t2,    "TornadoOnMSVecD2");
-        do_family(t3,    "TornadoOnMSVecD3");
-        do_family(t4,    "TornadoOnMSVecD4");
-        do_family(rh32,  "RapidHash32");
+        
+struct Job { const char* name; std::function<void()> run; };
+std::vector<Job> jobs = {
+    {"MSVec", [&] {do_family(msvec, "MSVec"); }},
+    {"TabOnMSVec", [&]{ do_family(tabms, "TabOnMSVec"); }},
+    {"TornadoOnMSVecD1", [&]{ do_family(t1, "TornadoOnMSVecD1"); }},
+    {"TornadoOnMSVecD2", [&]{ do_family(t2, "TornadoOnMSVecD2"); }},
+    {"TornadoOnMSVecD3", [&]{ do_family(t3, "TornadoOnMSVecD3"); }},
+    {"TornadoOnMSVecD4", [&]{ do_family(t4, "TornadoOnMSVecD4"); }},
+    {"RapidHash32", [&]{ do_family(rh32, "RapidHash32"); }},
+};
+for (int _r = 0; _r < rounds; ++_r) {
+    std::mt19937_64 _ord_rng(std::random_device{}());
+    std::shuffle(jobs.begin(), jobs.end(), _ord_rng);
+    for (auto& j : jobs) j.run();
+}
+{
+    std::unordered_map<std::string, std::vector<Row>> _groups;
+    _groups.reserve(rows.size());
+    for (const auto& r : rows) _groups[std::string(r.name)].push_back(r);
+    std::vector<Row> _collapsed; _collapsed.reserve(_groups.size());
+    auto _median = [](std::vector<double>& v) {
+        if (v.empty()) return 0.0;
+        size_t n = v.size();
+        std::nth_element(v.begin(), v.begin() + n/2, v.end());
+        double m = v[n/2];
+        if (n % 2 == 0) {
+            auto max_lower = *std::max_element(v.begin(), v.begin() + n/2);
+            m = 0.5 * (m + max_lower);
+        }
+        return m;
+    };
+    for (auto& kv : _groups) {
+        const char* nm = kv.second.front().name;
+        std::vector<double> mhpsv; mhpsv.reserve(kv.second.size());
+        std::vector<double> nsphv; nsphv.reserve(kv.second.size());
+        std::uint32_t chk = 0;
+        for (auto& r : kv.second) { mhpsv.push_back(r.mhps); nsphv.push_back(r.nsph); chk ^= r.checksum; }
+        double mhps_med = _median(mhpsv);
+        double nsph_med = _median(nsphv);
+        _collapsed.push_back(Row{ nm, mhps_med, nsph_med, chk });
+    }
+    rows.swap(_collapsed);
+}
+
 
         std::ofstream f(out_csv, std::ios::binary);
         if (!f) { std::cerr << "Cannot open " << out_csv << "\n"; return 3; }

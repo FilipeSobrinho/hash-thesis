@@ -17,6 +17,10 @@
 #include "sketch/bottomk.hpp"
 #include "sketch/countmin.hpp"
 #include "sketch/oph.hpp"
+#include <random>
+#include <algorithm>
+#include <functional>
+#include <unordered_map>
 
 static inline std::uint32_t load_le_u32(const std::uint8_t* p) {
     return (std::uint32_t)p[0] | ((std::uint32_t)p[1] << 8) |
@@ -46,10 +50,12 @@ struct RapidRow32 { rapid::RapidHash32 h; void set_seed(std::uint64_t s){ h.set_
 
 int main(int argc, char** argv) {
     try {
-        std::size_t loops = 200;
+        std::size_t loops = 1000;
         std::size_t WIDTH = 32768;
         std::size_t DEPTH = 3;
         std::string out_csv = "a2_speed_cm.csv";
+        int rounds = 10; // number of randomized passes
+
         for (int i = 1; i < argc; ++i) {
             std::string a = argv[i];
             auto next = [&]() { if (i + 1 < argc) return std::string(argv[++i]); throw std::runtime_error("missing value for " + a); };
@@ -130,6 +136,35 @@ int main(int argc, char** argv) {
         auto [sec_t3, s_t3]     = bench_tor(3);   rows.push_back({"Tornado32_D3",   (N*loops/sec_t3)/1e6, (sec_t3*1e9)/(N*loops), s_t3});
         auto [sec_t4, s_t4]     = bench_tor(4);   rows.push_back({"Tornado32_D4",   (N*loops/sec_t4)/1e6, (sec_t4*1e9)/(N*loops), s_t4});
         auto [sec_rh, s_rh]     = bench_rapid();  rows.push_back({"RapidHash32",    (N*loops/sec_rh)/1e6, (sec_rh*1e9)/(N*loops), s_rh});
+{
+    std::unordered_map<std::string, std::vector<Row>> _groups;
+    _groups.reserve(rows.size());
+    for (const auto& r : rows) _groups[std::string(r.name)].push_back(r);
+    std::vector<Row> _collapsed; _collapsed.reserve(_groups.size());
+    auto _median = [](std::vector<double>& v) {
+        if (v.empty()) return 0.0;
+        size_t n = v.size();
+        std::nth_element(v.begin(), v.begin() + n/2, v.end());
+        double m = v[n/2];
+        if (n % 2 == 0) {
+            auto max_lower = *std::max_element(v.begin(), v.begin() + n/2);
+            m = 0.5 * (m + max_lower);
+        }
+        return m;
+    };
+    for (auto& kv : _groups) {
+        const char* nm = kv.second.front().name;
+        std::vector<double> mhpsv; mhpsv.reserve(kv.second.size());
+        std::vector<double> nsphv; nsphv.reserve(kv.second.size());
+        std::uint32_t chk = 0;
+        for (auto& r : kv.second) { mhpsv.push_back(r.mhps); nsphv.push_back(r.nsph); chk ^= r.checksum; }
+        double mhps_med = _median(mhpsv);
+        double nsph_med = _median(nsphv);
+        _collapsed.push_back(Row{ nm, mhps_med, nsph_med, chk });
+    }
+    rows.swap(_collapsed);
+}
+
 
         std::ofstream f(out_csv, std::ios::binary);
         if (!f) { std::cerr << "Cannot open " << out_csv << "\n"; return 3; }
