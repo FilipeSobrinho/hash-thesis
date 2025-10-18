@@ -27,6 +27,7 @@ file(TO_CMAKE_PATH "${REPO_ROOT_DIR}" REPO_ROOT_DIR_FWD)
 add_compile_definitions(ROOT_DEFAULT_DIR="${REPO_ROOT_DIR_FWD}")
 
 # Executables 
+add_executable(colisions_R2_MSVEC_rapid src/colisions_R2_MSVEC_rapid.cpp)
 add_executable(serial_CM_a1 src/serial_CM_a1.cpp)
 add_executable(serial_CM_a2 src/serial_CM_a2.cpp)
 add_executable(serial_CM_r1 src/serial_CM_r1.cpp)
@@ -80,4 +81,5 @@ target_include_directories(speed_OPH_r2 PRIVATE include)
 target_include_directories(speed_BK_r1 PRIVATE include)
 target_include_directories(speed_CM_r1 PRIVATE include)
 target_include_directories(speed_OPH_r1 PRIVATE include)
+target_include_directories(colisions_R2_MSVEC_rapid PRIVATE include)
 
