@@ -47,6 +47,7 @@ Dataset generation/extraction in include/core/
 ## Tips
 * Close all possible background apps to reduce noise.
 * Windows: set Power Plan to **High performance** for more stable timings.
+* The source files starting with paralel are paralelized versions of the accuracy experiments that greatly improve execution speed. They were not used to obtain the final results as they are not completely reproducible (the seed order will vary)
 
 
 
