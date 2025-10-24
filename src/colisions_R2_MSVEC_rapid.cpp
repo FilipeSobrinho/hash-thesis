@@ -33,12 +33,6 @@
 #include "hash/msvec.hpp"
 #include "hash/rapidhash.h"
 
-#include <iostream>
-
-
-
-
-
 // ---------- R2 accessors that handle both index layouts ----------
 
 template<class Index>
@@ -172,28 +166,6 @@ static std::uint32_t trial_collisions(Hasher& H,
 }
 
 int main(int argc, char** argv) {
-
-
-    #ifdef _MSVC_LANG
-        std::cout << "_MSVC_LANG: " << _MSVC_LANG << "\n";
-    #endif
-        std::cout << "__cplusplus: " << __cplusplus << "\n";
-
-    #if __cplusplus >= 202102L || (defined(_MSVC_LANG) && _MSVC_LANG >= 202302L)
-        std::cout << "Detected: C++23 or later\n";
-    #elif __cplusplus >= 202002L || (defined(_MSVC_LANG) && _MSVC_LANG >= 202002L)
-        std::cout << "Detected: C++20\n";
-    #elif __cplusplus >= 201703L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201703L)
-        std::cout << "Detected: C++17\n";
-    #elif __cplusplus >= 201402L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201402L)
-        std::cout << "Detected: C++14\n";
-    #elif __cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)
-        std::cout << "Detected: C++11\n";
-    #else
-        std::cout << "Detected: pre-C++11\n";
-    #endif
-
-
     try {
         std::uint32_t trials = 50000;
         std::string out_csv = "r2_collision_max.csv";

@@ -9,9 +9,6 @@ CMakeFiles/
 *.vcxproj*
 *.sln
 
-
-.src/colisions_R2_MSVEC_rapid
-
 # Python
 __pycache__/
 *.pyc
