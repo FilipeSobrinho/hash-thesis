@@ -16,14 +16,17 @@ Build all: Ctrl + Shift + B
 Download the following datasets:
 
 https://www.rngresearch.com/download/block0.rng
-https://www.kaggle.com/datasets/gupta24789/
-text8-word-embedding?resource=download
-https://www.gharchive.org/2015-01-01-15.
-json.gz)
+
+https://www.kaggle.com/datasets/gupta24789/text8-word-embedding?resource=download
+
+https://www.gharchive.org/2015-01-01-15.json.gz)
 
 Execute the following scripts to keep only the necessary data:
+
 extract_commit_sha1.py
+
 extract_first_words.py
+
 (The datasets should be in the root of the project)
 
 ### 1) Speed + raw hash timing
