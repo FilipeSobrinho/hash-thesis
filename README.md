@@ -66,5 +66,20 @@ Dataset generation/extraction in include/core/
 * Windows: set Power Plan to **High performance** for more stable timings.
 * The source files starting with paralel are paralelized versions of the accuracy experiments that greatly improve execution speed. They were not used to obtain the final results as they are not completely reproducible (the seed order will vary)
 
+## Adding New Components
+
+### Add a new sketch
+1. Implement the sketch in `include/sketch/`, following the style of existing sketches.
+2. Add the corresponding experiments under `src/` for each dataset, mirroring the structure of existing experiments.
+3. Update the script that runs all experiments so the new experiments are included (e.g., your run-all script).
+
+### Add a new dataset
+1. Add the dataset type in `include/core/`, matching the conventions of datasets with the same key size (fixed or variable).
+2. Create experiments under `src/` for each sketch, consistent with the existing layout.
+3. Update the script that runs all experiments so the new experiments are included.
+
+### Add a new hash function
+1. Implement it in `include/hash/`, following the pattern of hashes with the same key size (fixed or variable).
+2. Update all experiments in `src/` to include the new hash, mirroring how other hash functions (with the same key size) are wired in.
 
 
