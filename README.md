@@ -34,7 +34,7 @@ extract_first_words.py
 From the repo root:
 
 ```
-run_speed_and_time.ps1
+.\scripts\run_speed_and_time.ps1
 ```
 
 * Generates **CSV** for speed.
@@ -45,12 +45,12 @@ run_speed_and_time.ps1
 From the repo root:
 
 ```
-run_all.ps1
+ .\scripts\run_all.ps1
 ```
 
 * Generates **CSV** for accuracy inside a new folder under `results/`.
 
-Then run:
+Then run in the directory created in results :
 
 ```
 plot_all.py
