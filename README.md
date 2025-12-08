@@ -82,4 +82,5 @@ Dataset generation/extraction in include/core/
 1. Implement it in `include/hash/`, following the pattern of hashes with the same key size (fixed or variable).
 2. Update all experiments in `src/` to include the new hash, mirroring how other hash functions (with the same key size) are wired in.
 
-
+## Contact information  
+filipecqs@gmail.com
